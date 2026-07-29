@@ -219,6 +219,16 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 		SecureCookie:    false, // TODO: detect via X-Forwarded-Proto or env flag
 	}
 	audit := handlers.NewAuditLogger(db)
+	// LifecycleDeps is shared by the HTML form-dispatcher and the
+	// JSON API endpoints. Declared early so the HTML group can use
+	// it for its routes too.
+	lifecycleDeps := handlers.LifecycleDeps{
+		DB:      db,
+		Store:   instanceStore,
+		Manager: mgr,
+		Audit:   audit,
+	}
+
 	// Login / logout are unauthenticated. Everything else under /admin/*
 	// (HTML pages + JSON API) requires a valid session.
 	r.POST("/admin/login", handlers.LoginHandler(authDeps))
@@ -231,6 +241,11 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminUI.GET("/", handlers.AdminListPage(db))
 	adminUI.GET("/instances/new", handlers.AdminNewPage())
 	adminUI.GET("/instances/:id", handlers.AdminDetailPage(db))
+	// Form-based dispatcher for the lifecycle buttons in the
+	// manager detail page (Connect/Disconnect/Reconnect). Reads
+	// the `action` form value and routes to the right internal
+	// method, then redirects back to the detail page.
+	adminUI.POST("/instances/:id", handlers.LifecycleActionHandler(lifecycleDeps))
 	adminUI.GET("/audit", handlers.AdminAuditPage(db))
 
 	// Manager-authenticated JSON API.
@@ -244,13 +259,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminAPI.PUT("/instances/:id/webhook", handlers.SetWebhookHandler(instanceStore))
 	adminAPI.GET("/instances/:id/webhook-deliveries", handlers.ListWebhookDeliveriesHandler(db))
 
-	// Lifecycle endpoints (US-025..US-028)
-	lifecycleDeps := handlers.LifecycleDeps{
-		DB:      db,
-		Store:   instanceStore,
-		Manager: mgr,
-		Audit:   audit,
-	}
+	// Lifecycle JSON API endpoints (US-025..US-028)
 	adminAPI.POST("/instances/:id/connect", handlers.ConnectInstanceHandler(lifecycleDeps))
 	adminAPI.POST("/instances/:id/disconnect", handlers.DisconnectInstanceHandler(lifecycleDeps))
 	adminAPI.POST("/instances/:id/reconnect", handlers.ReconnectInstanceHandler(lifecycleDeps))

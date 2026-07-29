@@ -196,7 +196,7 @@ var adminDetailTmpl = template.Must(
 
 <div class="card">
   <h2>Lifecycle</h2>
-  <form method="POST" style="display:flex;gap:.5rem;flex-wrap:wrap">
+  <form method="POST" action="/admin/instances/{{.Instance.ID}}" style="display:flex;gap:.5rem;flex-wrap:wrap">
     <button class="btn" name="action" value="connect">Connect</button>
     <button class="btn secondary" name="action" value="disconnect">Disconnect</button>
     <button class="btn secondary" name="action" value="reconnect">Reconnect</button>

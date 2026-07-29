@@ -18,6 +18,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -228,4 +229,91 @@ func currentUser(c *gin.Context) string {
 		}
 	}
 	return ""
+}
+
+// LifecycleActionHandler — POST /admin/instances/{id}.
+//
+// Form-based dispatcher for the lifecycle buttons in the detail
+// page (Connect / Disconnect / Reconnect). Reads the `action` form
+// value and routes to the matching Manager method, then redirects
+// back to the detail page with a status message in the query
+// string. Redirect-after-POST avoids the "are you sure you want
+// to resubmit the form?" prompt on browser refresh.
+func LifecycleActionHandler(deps LifecycleDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		ctx := c.Request.Context()
+		action := c.PostForm("action")
+		username := currentUser(c)
+
+		var msg, msgClass string
+		switch action {
+		case "connect":
+			// Confirm the instance exists + is paired.
+			inst, _, err := deps.Manager.LookupByID(ctx, id)
+			if err != nil {
+				msg, msgClass = "Lookup failed: "+err.Error(), "error"
+				break
+			}
+			if inst == nil {
+				msg, msgClass = "Instance not found.", "error"
+				break
+			}
+			cli := deps.Manager.Get(id)
+			if cli != nil && cli.IsConnected() {
+				msg, msgClass = "Already connected.", "ok"
+				break
+			}
+			if cli == nil || !cli.IsLoggedIn() {
+				msg, msgClass = "Not paired yet — scan the QR code first.", "error"
+				break
+			}
+			if err := deps.Manager.Start(ctx, id); err != nil {
+				msg, msgClass = "Connect failed: "+err.Error(), "error"
+				break
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log(ctx, "instance.connect", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
+			}
+			msg, msgClass = "Connecting.", "ok"
+
+		case "disconnect":
+			if err := deps.Manager.Disconnect(id); err != nil {
+				msg, msgClass = "Disconnect failed: "+err.Error(), "error"
+				break
+			}
+			_ = deps.Store.SetStatus(id, instance.StatusDisconnected, nil, nil)
+			if deps.Audit != nil {
+				deps.Audit.Log(ctx, "instance.disconnect", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
+			}
+			msg, msgClass = "Disconnected.", "ok"
+
+		case "reconnect":
+			inst, _, err := deps.Manager.LookupByID(ctx, id)
+			if err != nil {
+				msg, msgClass = "Lookup failed: "+err.Error(), "error"
+				break
+			}
+			if inst == nil {
+				msg, msgClass = "Instance not found.", "error"
+				break
+			}
+			if err := deps.Manager.Reconnect(ctx, id); err != nil {
+				msg, msgClass = "Reconnect failed: "+err.Error(), "error"
+				break
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log(ctx, "instance.reconnect", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
+			}
+			msg, msgClass = "Reconnecting.", "ok"
+
+		default:
+			msg, msgClass = "Unknown action: "+action, "error"
+		}
+
+		// Redirect back to the detail page with the status message in
+		// the query string. The page template renders the message
+		// in the .ActionResult / .ActionResultClass fields.
+		c.Redirect(http.StatusFound, "/admin/instances/"+id+"?msg="+url.QueryEscape(msg)+"&msg_class="+msgClass)
+	}
 }
