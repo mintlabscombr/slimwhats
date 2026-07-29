@@ -22,6 +22,7 @@ import (
 	"github.com/joho/godotenv"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	waLog "go.mau.fi/whatsmeow/util/log"
 	_ "modernc.org/sqlite" // modernc.org/sqlite registers as "sqlite"
 
 	"github.com/mauroneto/whatsmeow-api/internal/auth"
@@ -50,7 +51,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	// Log level: APP_LOG=debug for verbose pairing-trace output,
+	// APP_LOG=info (default) for normal operation, APP_LOG=warn
+	// for quiet prod runs. The whatsmeow library's internal logger
+	// is wired to slog at the same level (see below).
+	slogLevel := slog.LevelInfo
+	switch strings.ToLower(os.Getenv("APP_LOG")) {
+	case "debug":
+		slogLevel = slog.LevelDebug
+	case "warn", "warning":
+		slogLevel = slog.LevelWarn
+	case "error":
+		slogLevel = slog.LevelError
+	}
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slogLevel})
+	logger := slog.New(handler)
 	slog.SetDefault(logger)
 
 	slog.Info("manager panel ready",
@@ -76,8 +91,11 @@ func main() {
 	// Build the instance manager: opens the whatsmeow sqlstore over the
 	// same DB, loads every row, and starts a Client per instance. Uses
 	// context.Background() (not bootCtx) because we cancel that as soon
-	// as Open returns.
-	mgr, err := instance.NewManager(db, store.SQLDriverName(cfg.DBDriver))
+	// as Open returns. We pass a slog adapter so whatsmeow's internal
+	// logs surface in our terminal at the same level as the rest of
+	// the service (set APP_LOG=debug to see the full pairing trace).
+	waLogger := waLogAdapter{logger: logger}
+	mgr, err := instance.NewManager(db, store.SQLDriverName(cfg.DBDriver), waLogger)
 	if err != nil {
 		slog.Error("init instance manager", "err", err)
 		os.Exit(1)
@@ -100,9 +118,15 @@ func main() {
 	dispatcher.Start()
 	instanceStore := instance.NewStore(db)
 	mgr.SubscribeEvents(func(instanceID string, evt interface{}) {
+		// Echo every event to the terminal so the operator can see
+		// the full pairing timeline in the logs (the whatsmeow
+		// library logger is set to slog.Debug below, but the
+		// event stream is the source of truth for "what did
+		// WhatsApp say about this device").
+		slog.Debug("whatsmeow event", "id", instanceID, "type", eventTypeName(evt), "evt", evt)
 		// Persist status transitions to the DB so GET /admin/api/instances
 		// and the manager UI see the same status the whatsmeow client has.
-		switch evt.(type) {
+		switch e := evt.(type) {
 		case *events.Connected:
 			now := time.Now().UTC()
 			_ = instanceStore.SetStatus(instanceID, instance.StatusConnected, &now, &now)
@@ -112,8 +136,28 @@ func main() {
 			if !mgr.IsExpectedDisconnect(instanceID) {
 				_ = instanceStore.SetStatus(instanceID, instance.StatusDisconnected, nil, nil)
 			}
+			slog.Info("instance disconnected", "id", instanceID, "reason", disconnectReason(e))
 		case *events.LoggedOut:
 			_ = instanceStore.SetStatus(instanceID, instance.StatusLoggedOut, nil, nil)
+			slog.Warn("instance logged out", "id", instanceID, "reason", e.Reason.String())
+		case *events.ConnectFailure:
+			// WhatsApp's server sent a <failure> node to the
+			// connect handshake. This is where "Cant link new
+			// devices right now" or "Too many devices" errors
+			// surface. The Reason is a typed enum (400 generic,
+			// 401 logged out, 402 temp banned, 403 main-device-gone,
+			// etc.); Message is the human-readable string.
+			slog.Warn("connect failure",
+				"id", instanceID,
+				"reason_code", e.Reason.NumberString(),
+				"reason", e.Reason.String(),
+				"message", e.Message)
+		case *events.PairError:
+			// Server said pair-success but finishing the pairing
+			// locally failed. Rare, but log it.
+			slog.Warn("pair error", "id", instanceID, "err", e.Error)
+		case *events.PairPasskeyError:
+			slog.Warn("pair passkey error", "id", instanceID, "err", e.Error)
 		}
 		// Mirror every event into instance_logs (US-029). Best-effort
 		// — a logging failure must not break the webhook pipeline.
@@ -323,6 +367,33 @@ func logEntry(store *instance.Store, instanceID string, evt interface{}) {
 		category = instance.LogCategoryConnect
 		message = "instance logged out"
 		data = map[string]any{"reason": e.Reason.String()}
+	case *events.ConnectFailure:
+		// "Cant link new devices right now", "Too many devices",
+		// "Logged out", etc. all surface here with a typed reason
+		// code and a human-readable message. We record the data
+		// verbatim so the operator can correlate with whatever
+		// their phone actually showed.
+		level = instance.LogLevelWarn
+		category = instance.LogCategoryConnect
+		message = "connect failure from server"
+		data = map[string]any{
+			"reason_code": e.Reason.NumberString(),
+			"reason":      e.Reason.String(),
+			"message":     e.Message,
+		}
+	case *events.PairError:
+		level = instance.LogLevelWarn
+		category = instance.LogCategoryConnect
+		message = "pair error"
+		data = map[string]any{"error": e.Error.Error()}
+	case *events.PairPasskeyError:
+		level = instance.LogLevelWarn
+		category = instance.LogCategoryConnect
+		message = "pair passkey error"
+		data = map[string]any{
+			"error":        e.Error.Error(),
+			"continuation": e.Continuation,
+		}
 	case *events.PairSuccess:
 		category = instance.LogCategoryConnect
 		message = "instance paired successfully"
@@ -384,4 +455,86 @@ func receiptMessageIDs(ids []types.MessageID) []string {
 		out[i] = string(id)
 	}
 	return out
+}
+
+// eventTypeName returns a short human-readable name for a whatsmeow
+// event type. Used in the terminal log line ("whatsmeow event ...")
+// so the operator can scan a stream of events without expanding the
+// full event payload each time.
+func eventTypeName(evt interface{}) string {
+	switch evt.(type) {
+	case *events.Connected:
+		return "Connected"
+	case *events.Disconnected:
+		return "Disconnected"
+	case *events.LoggedOut:
+		return "LoggedOut"
+	case *events.ConnectFailure:
+		return "ConnectFailure"
+	case *events.PairSuccess:
+		return "PairSuccess"
+	case *events.PairError:
+		return "PairError"
+	case *events.PairPasskeyRequest:
+		return "PairPasskeyRequest"
+	case *events.PairPasskeyConfirmation:
+		return "PairPasskeyConfirmation"
+	case *events.PairPasskeyError:
+		return "PairPasskeyError"
+	case *events.QR:
+		return "QR"
+	case *events.Message:
+		return "Message"
+	case *events.Receipt:
+		return "Receipt"
+	case *events.GroupInfo:
+		return "GroupInfo"
+	case *events.Contact:
+		return "Contact"
+	case *events.Presence:
+		return "Presence"
+	case *events.ManualLoginReconnect:
+		return "ManualLoginReconnect"
+	default:
+		return fmt.Sprintf("%T", evt)
+	}
+}
+
+// disconnectReason returns a short human-readable tag for a
+// Disconnected event. The event is currently an empty struct
+// (just "the websocket was closed") — there's no reason code
+// to surface. The handler that called Disconnect() (the operator
+// path) is the one that knows if it was operator-driven; the
+// subscriber just notes that a disconnect happened.
+func disconnectReason(e *events.Disconnected) string {
+	if e == nil {
+		return ""
+	}
+	return "websocket closed by server"
+}
+
+// waLogAdapter is a thin adapter that pipes whatsmeow's internal
+// waLog.Logger calls into our slog handler. Lets us see the library's
+// "Sending QR code request", "Got QR event", "Connection closed by
+// server" type messages in the same JSON log stream as the rest of
+// the service. APP_LOG=debug enables the chatty ones.
+type waLogAdapter struct {
+	logger *slog.Logger
+	module string
+}
+
+func (w waLogAdapter) Debugf(msg string, args ...any) {
+	w.logger.Debug("whatsmeow."+w.module, "msg", fmt.Sprintf(msg, args...))
+}
+func (w waLogAdapter) Infof(msg string, args ...any) {
+	w.logger.Info("whatsmeow."+w.module, "msg", fmt.Sprintf(msg, args...))
+}
+func (w waLogAdapter) Warnf(msg string, args ...any) {
+	w.logger.Warn("whatsmeow."+w.module, "msg", fmt.Sprintf(msg, args...))
+}
+func (w waLogAdapter) Errorf(msg string, args ...any) {
+	w.logger.Error("whatsmeow."+w.module, "msg", fmt.Sprintf(msg, args...))
+}
+func (w waLogAdapter) Sub(module string) waLog.Logger {
+	return waLogAdapter{logger: w.logger, module: w.module + "." + module}
 }

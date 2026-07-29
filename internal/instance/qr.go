@@ -91,6 +91,13 @@ var ErrAlreadyPaired = errors.New("instance already paired")
 //
 // Only safe to call for unpaired clients — IsLoggedIn() must be false
 // (we don't want to disconnect a paired client just to fetch a QR).
+//
+// QR channel events (see whatsmeow.QRChannelItem):
+//   - "code": a new QR payload is ready; Code field is the raw string.
+//   - "success": the phone scanned the QR and pairing finished.
+//   - "error": WhatsApp's server rejected the pairing. The Error field
+//     contains the human-readable reason (e.g. "rate-limit"). We
+//     return this as a typed error so callers can surface it.
 func GetLatestQR(ctx context.Context, client *whatsmeow.Client) (string, error) {
 	if client.IsLoggedIn() {
 		return "", ErrAlreadyPaired
@@ -116,14 +123,31 @@ func GetLatestQR(ctx context.Context, client *whatsmeow.Client) (string, error) 
 			_ = err
 		}
 	}()
-	select {
-	case item := <-qrChan:
-		if item.Event == "success" {
-			return "", nil
+	for {
+		select {
+		case item := <-qrChan:
+			switch item.Event {
+			case "code":
+				return item.Code, nil
+			case "success":
+				return "", ErrAlreadyPaired
+			case "error":
+				// WhatsApp's server rejected the pairing attempt.
+				// item.Error is the human-readable reason from the
+				// server (e.g. "rate-limit", "conflict",
+				// "not-found"). Wrap it so callers can slog it.
+				if item.Error != nil {
+					return "", fmt.Errorf("pairing rejected by server: %w", item.Error)
+				}
+				return "", errors.New("pairing rejected by server (no error message)")
+			default:
+				// Passkey flow (multi-device beta) or other events
+				// we don't render — keep draining the channel.
+				continue
+			}
+		case <-ctx.Done():
+			return "", ctx.Err()
 		}
-		return item.Code, nil
-	case <-ctx.Done():
-		return "", ctx.Err()
 	}
 }
 

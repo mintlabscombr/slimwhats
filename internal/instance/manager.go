@@ -40,9 +40,11 @@ type managedClient struct {
 
 // NewManager creates the whatsmeow Container over the given DB and
 // initializes the client map. Call StartAll to actually create the
-// whatsmeow Clients.
-func NewManager(db *sql.DB, driver string) (*Manager, error) {
-	container := sqlstore.NewWithDB(db, driver, waLog.Noop)
+// whatsmeow Clients. The waLog parameter is the whatsmeow-internal
+// logger; pass waLog.Noop to silence or a wrapper around your own
+// logger (see cmd/whatsapp-api/main.go for the slog adapter).
+func NewManager(db *sql.DB, driver string, waLogger waLog.Logger) (*Manager, error) {
+	container := sqlstore.NewWithDB(db, driver, waLogger)
 	return &Manager{
 		DB:        db,
 		Container: container,
@@ -108,6 +110,9 @@ func (m *Manager) Start(ctx context.Context, instanceID string) error {
 		}()
 		return nil
 	}
+	// Fall through to create a new client. Release the read lock
+	// before doing the (potentially slow) device-creation work,
+	// then take it again to publish the new client.
 	m.mu.Unlock()
 
 	// Get the JID we should use for the device. If the instance is
@@ -133,8 +138,24 @@ func (m *Manager) Start(ctx context.Context, instanceID string) error {
 	client.AutoTrustIdentity = true
 	client.EnableAutoReconnect = true
 
-	mc := &managedClient{instance: inst, device: device, client: client}
+	// Register the event handler IMMEDIATELY (before publishing to the
+	// map) if a global callback has been set via SubscribeEvents.
+	// SubscribeEvents only attaches handlers to clients that exist
+	// at call time — any client lazy-loaded AFTER that point (e.g.
+	// a freshly-created instance that the user opens in the manager
+	// UI) would otherwise emit events into the void. See the comment
+	// on SubscribeEvents for the rest of the contract.
+	//
+	// We hold m.mu (write-locked) here so we can read m.eventCallback
+	// without a second lock acquisition — that would deadlock with
+	// the RLock pattern used elsewhere in the file.
 	m.mu.Lock()
+	if m.eventCallback != nil {
+		client.AddEventHandler(func(evt interface{}) {
+			m.eventCallback(instanceID, evt)
+		})
+	}
+	mc := &managedClient{instance: inst, device: device, client: client}
 	m.clients[instanceID] = mc
 	m.mu.Unlock()
 
