@@ -136,6 +136,13 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager) *gin.Eng
 	r.POST("/admin/api/instances", handlers.CreateInstanceHandler(instanceStore))
 	r.GET("/admin/api/instances", handlers.ListInstancesHandler(instanceStore))
 	r.GET("/admin/api/instances/:id", handlers.GetInstanceHandler(instanceStore))
+	r.GET("/admin/api/instances/:id/qr", handlers.InstanceQRHandler(mgr))
+	r.GET("/admin/api/instances/:id/status", handlers.InstanceStatusHandler(mgr))
+	r.PUT("/admin/api/instances/:id/webhook", handlers.SetWebhookHandler(instanceStore, cfg.EncryptionKey))
+
+	// Per-instance API-key routes (Bearer auth)
+	api := r.Group("/api/v1", handlers.InstanceAPIKeyAuth(mgr))
+	api.GET("/ping", handlers.PingHandler())
 
 	return r
 }

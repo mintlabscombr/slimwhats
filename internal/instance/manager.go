@@ -137,8 +137,24 @@ func (m *Manager) loadInstance(ctx context.Context, id string) (*Instance, error
 	return scanInstance(row)
 }
 
-// Get returns the whatsmeow Client for an instance, or nil if not loaded.
+// Get returns the whatsmeow Client for an instance. If the client
+// isn't in the in-memory map (e.g. the instance was created after
+// boot), it is loaded lazily. Returns nil if the instance doesn't
+// exist or fails to load.
 func (m *Manager) Get(instanceID string) *whatsmeow.Client {
+	m.mu.RLock()
+	mc, ok := m.clients[instanceID]
+	m.mu.RUnlock()
+	if ok {
+		return mc.client
+	}
+	// Lazy load: try to start the instance. Use a fresh context — the
+	// load is quick (just DB read + client creation) and there's no
+	// caller-provided context to thread through.
+	if err := m.Start(context.Background(), instanceID); err != nil {
+		slog.Warn("lazy instance load failed", "id", instanceID, "err", err)
+		return nil
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if mc, ok := m.clients[instanceID]; ok {
@@ -163,7 +179,7 @@ func (m *Manager) GetByAPIKey(ctx context.Context, plaintext string) (*Instance,
 }
 
 // LookupByID returns the instance row + client by id, or (nil, nil) if
-// the instance is unknown.
+// the instance is unknown. The client is loaded lazily.
 func (m *Manager) LookupByID(ctx context.Context, id string) (*Instance, *whatsmeow.Client, error) {
 	inst, err := m.loadInstance(ctx, id)
 	if err != nil || inst == nil {
