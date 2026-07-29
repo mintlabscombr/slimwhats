@@ -98,6 +98,7 @@ func main() {
 		dispatcher.Enqueue(instanceID, ev.Event, deliveryID, ev)
 	})
 
+	_ = cfg // silence
 	router := buildRouter(cfg, db, mgr, dispatcher)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -162,6 +163,10 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	r.GET("/admin/api/instances/:id/status", handlers.InstanceStatusHandler(mgr))
 	r.PUT("/admin/api/instances/:id/webhook", handlers.SetWebhookHandler(instanceStore, cfg.EncryptionKey))
 	r.GET("/admin/api/instances/:id/webhook-deliveries", handlers.ListWebhookDeliveriesHandler(db))
+
+	// Swagger UI + raw OpenAPI spec (US-017 + US-018)
+	r.GET("/swagger", handlers.SwaggerUIHandler())
+	r.GET("/swagger/openapi.yaml", handlers.OpenAPISpecHandler())
 
 	// Per-instance API-key routes (Bearer auth)
 	api := r.Group("/api/v1", handlers.InstanceAPIKeyAuth(mgr))
