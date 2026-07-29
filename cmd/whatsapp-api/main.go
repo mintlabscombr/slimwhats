@@ -22,6 +22,7 @@ import (
 	"github.com/mauroneto/whatsmeow-api/internal/auth"
 	"github.com/mauroneto/whatsmeow-api/internal/config"
 	"github.com/mauroneto/whatsmeow-api/internal/handlers"
+	"github.com/mauroneto/whatsmeow-api/internal/instance"
 	"github.com/mauroneto/whatsmeow-api/internal/store"
 )
 
@@ -111,6 +112,11 @@ func buildRouter(cfg *config.Config, db *sql.DB) *gin.Engine {
 	r.POST("/admin/login", handlers.LoginHandler(authDeps))
 	r.POST("/admin/logout", handlers.LogoutHandler(authDeps))
 	r.GET("/admin/login", handlers.LoginPageHandler(cfg.ManagerUsername))
+
+	instanceStore := instance.NewStore(db)
+	r.POST("/admin/api/instances", handlers.CreateInstanceHandler(instanceStore))
+	r.GET("/admin/api/instances", handlers.ListInstancesHandler(instanceStore))
+	r.GET("/admin/api/instances/:id", handlers.GetInstanceHandler(instanceStore))
 
 	return r
 }
