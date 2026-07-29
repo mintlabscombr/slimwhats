@@ -15,17 +15,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/jackc/pgx/v5/stdlib" // pgx registers as "postgres"
+	_ "modernc.org/sqlite"             // modernc.org/sqlite registers as "sqlite"
 
 	"github.com/mauroneto/whatsmeow-api/internal/config"
+	"github.com/mauroneto/whatsmeow-api/internal/store"
 )
 
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		// Pre-logger fatal: the slog handler isn't set up yet, so write
-		// a single line to stderr and exit non-zero. Clear error text
-		// is part of the US-001 acceptance criteria (operator shouldn't
-		// get a silent boot).
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
 		os.Exit(1)
 	}
@@ -39,6 +38,21 @@ func main() {
 		"db_driver", cfg.DBDriver,
 	)
 
+	// Open DB + run migrations.
+	bootCtx, cancelBoot := context.WithTimeout(context.Background(), 30*time.Second)
+	db, err := store.Open(bootCtx, cfg.DBDriver, cfg.DBDSN)
+	cancelBoot()
+	if err != nil {
+		slog.Error("open db", "err", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+	if err := store.Migrate(db, cfg.DBDriver); err != nil {
+		slog.Error("migrate db", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("database ready", "driver", cfg.DBDriver)
+
 	router := buildRouter()
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -46,7 +60,6 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	// Listen for SIGINT / SIGTERM and trigger a clean shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -75,15 +88,11 @@ func main() {
 	slog.Info("shutdown complete")
 }
 
-// buildRouter wires the minimal route set for US-001. Subsequent user
-// stories will add the admin UI, instance CRUD, send endpoints, swagger, etc.
 func buildRouter() *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
-
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
-
 	return r
 }
