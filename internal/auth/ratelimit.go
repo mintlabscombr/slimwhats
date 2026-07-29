@@ -9,6 +9,11 @@ import (
 // keyed by source IP. Defaults: 5 failed attempts per 10 minutes per IP.
 // On lockout the IP is blocked for 15 minutes (the request returns 429
 // with Retry-After = remaining lockout seconds).
+//
+// The defaults are tunable via NewLoginRateLimiterWith. For local
+// dev, pass a very high maxFailures (e.g. 1_000_000) and a tiny
+// lockout (e.g. 1s) so the limiter doesn't get in the way of
+// legitimate retries on a single-user install.
 type LoginRateLimiter struct {
 	mu          sync.Mutex
 	failures    map[string][]time.Time
@@ -18,14 +23,21 @@ type LoginRateLimiter struct {
 	lockout     time.Duration
 }
 
-// NewLoginRateLimiter returns a limiter with the PRD defaults.
+// NewLoginRateLimiter returns a limiter with the PRD defaults:
+// 5 failures per 10 minutes, 15-minute lockout.
 func NewLoginRateLimiter() *LoginRateLimiter {
+	return NewLoginRateLimiterWith(5, 10*time.Minute, 15*time.Minute)
+}
+
+// NewLoginRateLimiterWith returns a limiter with custom knobs. Use this
+// for local dev or to relax the defaults in trusted environments.
+func NewLoginRateLimiterWith(maxFailures int, window, lockout time.Duration) *LoginRateLimiter {
 	return &LoginRateLimiter{
 		failures:    make(map[string][]time.Time),
 		lockedUntil: make(map[string]time.Time),
-		maxFailures: 5,
-		window:      10 * time.Minute,
-		lockout:     15 * time.Minute,
+		maxFailures: maxFailures,
+		window:      window,
+		lockout:     lockout,
 	}
 }
 
