@@ -120,6 +120,7 @@ var adminListTmpl = template.Must(
     <h2>Instances</h2>
     <a class="btn" href="/admin/instances/new">+ New instance</a>
   </div>
+  {{if .ActionResult}}<div class="{{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
   {{if .Instances}}
   <table>
     <colgroup>
@@ -350,7 +351,16 @@ func AdminListPage(db *sql.DB) gin.HandlerFunc {
 			r.Created = r.CreatedAt.UTC().Format("2006-01-02 15:04")
 			list = append(list, r)
 		}
-		renderAdmin(adminListTmpl, "Instances", gin.H{"Instances": list}, c)
+		// Surface a status banner after destructive actions (e.g.
+		// delete via the form-dispatcher) — the form POSTs to
+		// /admin/instances/{id}/delete, the handler redirects to
+		// /admin/?msg=...&msg_class=... and we render the same
+		// div the detail page uses.
+		renderAdmin(adminListTmpl, "Instances", gin.H{
+			"Instances":         list,
+			"ActionResult":      c.Query("msg"),
+			"ActionResultClass": c.Query("msg_class"),
+		}, c)
 	}
 }
 

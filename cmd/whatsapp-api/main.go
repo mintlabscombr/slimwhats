@@ -228,6 +228,15 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 		Manager: mgr,
 		Audit:   audit,
 	}
+	// APIKeyDeps is shared by the HTML form-dispatcher (rotate /
+	// reveal / delete on the detail page) and the JSON API. Declared
+	// early for the same reason as lifecycleDeps.
+	apiKeyDeps := handlers.APIKeyDeps{
+		Store:           instanceStore,
+		Manager:         mgr,
+		ManagerPassword: cfg.ManagerPassword,
+		Audit:           audit,
+	}
 
 	// Login / logout are unauthenticated. Everything else under /admin/*
 	// (HTML pages + JSON API) requires a valid session.
@@ -246,6 +255,12 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	// the `action` form value and routes to the right internal
 	// method, then redirects back to the detail page.
 	adminUI.POST("/instances/:id", handlers.LifecycleActionHandler(lifecycleDeps))
+	// Form-based dispatcher for the api-key buttons (Rotate /
+	// Reveal / Delete). The HTML forms submit to /admin/instances/{id}/...
+	// (no /api/ segment, no DELETE verb) so we need a shim.
+	adminUI.POST("/instances/:id/api-key/rotate", handlers.APIKeyFormActionHandler(apiKeyDeps))
+	adminUI.POST("/instances/:id/reveal-key", handlers.APIKeyFormActionHandler(apiKeyDeps))
+	adminUI.POST("/instances/:id/delete", handlers.APIKeyFormActionHandler(apiKeyDeps))
 	adminUI.GET("/audit", handlers.AdminAuditPage(db))
 
 	// Manager-authenticated JSON API.
@@ -265,15 +280,12 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminAPI.POST("/instances/:id/reconnect", handlers.ReconnectInstanceHandler(lifecycleDeps))
 	adminAPI.DELETE("/instances/:id", handlers.DeleteInstanceHandler(lifecycleDeps))
 
-	// API-key management (US-031)
-	apiKeyDeps := handlers.APIKeyDeps{
-		Store:           instanceStore,
-		ManagerPassword: cfg.ManagerPassword,
-		Audit:           audit,
-	}
+	// API-key management (US-031) — JSON API endpoints.
 	adminAPI.PUT("/instances/:id/api-key", handlers.SetAPIKeyHandler(apiKeyDeps))
 	adminAPI.POST("/instances/:id/api-key/rotate", handlers.RotateAPIKeyHandler(apiKeyDeps))
 	adminAPI.POST("/instances/:id/api-key/reveal", handlers.RevealAPIKeyHandler(apiKeyDeps))
+	// (delete is only via the form-dispatcher above — HTML forms
+	// can't issue DELETE, and the form posts to a different URL)
 
 	// Swagger UI + raw OpenAPI spec (US-017 + US-018)
 	r.GET("/swagger", handlers.SwaggerUIHandler())

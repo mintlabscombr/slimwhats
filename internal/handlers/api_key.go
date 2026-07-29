@@ -12,7 +12,10 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
+	"net/url"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -23,6 +26,7 @@ import (
 // APIKeyDeps groups the deps needed by the API-key handlers.
 type APIKeyDeps struct {
 	Store           *instance.Store
+	Manager         *instance.Manager
 	ManagerPassword string // plaintext, for the reveal re-auth check
 	Audit           AuditLogger
 }
@@ -38,9 +42,14 @@ type RotateAPIKeyResponse struct {
 	APIKey string `json:"api_key"` // plaintext, returned once
 }
 
-// RevealAPIKeyRequest is the JSON body for POST .../api-key/reveal.
+// RevealAPIKeyRequest is the body for POST .../api-key/reveal. Used
+// by BOTH the JSON API (US-031) and the HTML form-dispatcher on the
+// manager detail page — so the struct needs both `json:` and `form:`
+// tags. The `form:` tag is what gin's ShouldBind looks at when the
+// request is Content-Type: application/x-www-form-urlencoded; without
+// it the field is silently missing and `binding:"required"` fails.
 type RevealAPIKeyRequest struct {
-	ManagerPassword string `json:"manager_password" binding:"required"`
+	ManagerPassword string `json:"manager_password" form:"manager_password" binding:"required"`
 }
 
 // RevealAPIKeyResponse is the JSON body for the reveal response.
@@ -232,4 +241,153 @@ func RevealAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 			"message": "v1 limitation: API keys are bcrypt-hashed and cannot be recovered. Use PUT .../api-key to set a new known key, or POST .../api-key/rotate to auto-generate a new one. The plaintext was shown exactly once at create / rotate / set time.",
 		})
 	}
+}
+
+// APIKeyFormActionHandler — form-based dispatcher for the api-key
+// actions on the manager detail page. The HTML forms submit to
+// /admin/instances/{id}/{action} (no /api/ segment, no DELETE
+// verb — HTML forms only support GET/POST), so we need a small
+// shim that reads the action from the URL and routes to the
+// matching logic. Then it redirects back to the detail page
+// (or the list page, for delete) with a status message in the
+// query string.
+//
+// Routes handled (all POST):
+//
+//	POST /admin/instances/{id}/api-key/rotate → generate a new key
+//	POST /admin/instances/{id}/reveal-key     → v1 limitation message
+//	POST /admin/instances/{id}/delete         → delete the instance
+func APIKeyFormActionHandler(deps APIKeyDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		parts := splitPath(path)
+		if len(parts) < 4 {
+			redirectWithMsg(c, path, "error", "Malformed action URL.")
+			return
+		}
+		id := parts[2]
+		// The action is the last path segment. URLs look like:
+		//   /admin/instances/{id}/api-key/rotate → action="rotate"
+		//   /admin/instances/{id}/reveal-key     → action="reveal-key"
+		//   /admin/instances/{id}/delete         → action="delete"
+		action := parts[len(parts)-1]
+		username := currentUser(c)
+
+		switch action {
+		case "rotate":
+			inst, err := deps.Store.GetByID(id)
+			if err != nil {
+				redirectWithMsg(c, path, "error", "Lookup failed: "+err.Error())
+				return
+			}
+			if inst == nil {
+				redirectWithMsg(c, path, "error", "Instance not found.")
+				return
+			}
+			plaintext, err := instance.GenerateAPIKey()
+			if err != nil {
+				redirectWithMsg(c, path, "error", "Generate failed: "+err.Error())
+				return
+			}
+			hash, err := instance.BcryptAPIKey(plaintext)
+			if err != nil {
+				redirectWithMsg(c, path, "error", "Bcrypt failed: "+err.Error())
+				return
+			}
+			if err := deps.Store.SetAPIKey(id, hash); err != nil {
+				redirectWithMsg(c, path, "error", "Rotate failed: "+err.Error())
+				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log(c.Request.Context(), "instance.rotate_api_key", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
+			}
+			// Redirect back to the detail page with the new key in
+			// the query string so the template can render it in a
+			// copy-friendly code block.
+			c.Redirect(http.StatusFound, "/admin/instances/"+id+"?msg=API+key+rotated.&msg_class=ok&new_api_key="+url.QueryEscape(plaintext))
+
+		case "reveal-key":
+			// Reveal is a 2-step flow: the form on the detail page
+			// POSTs here with manager_password in the body. Validate
+			// the password; v1 can't actually recover the plaintext
+			// (bcrypt is one-way) so we redirect with an explanation.
+			var req RevealAPIKeyRequest
+			if err := c.ShouldBind(&req); err != nil {
+				redirectWithMsg(c, path, "error", "manager_password field is required.")
+				return
+			}
+			if !auth.CompareConstantTime(req.ManagerPassword, deps.ManagerPassword) {
+				if deps.Audit != nil {
+					deps.Audit.Log(c.Request.Context(), "instance.api_key_reveal_failed", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
+				}
+				redirectWithMsg(c, path, "error", "Invalid manager password.")
+				return
+			}
+			inst, err := deps.Store.GetByID(id)
+			if err != nil {
+				redirectWithMsg(c, path, "error", "Lookup failed: "+err.Error())
+				return
+			}
+			if inst == nil {
+				redirectWithMsg(c, path, "error", "Instance not found.")
+				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log(c.Request.Context(), "instance.api_key_revealed", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
+			}
+			redirectWithMsg(c, path, "ok", "v1 limitation: API keys are bcrypt-hashed and cannot be recovered. Use Rotate to set a new known key, or re-create the instance.")
+
+		case "delete":
+			deps.Manager.Remove(id)
+			time.Sleep(100 * time.Millisecond) // let whatsmeow release the socket
+			if err := deps.Store.Delete(id); err != nil {
+				slog.Error("delete instance failed", "id", id, "err", err)
+				redirectWithMsg(c, path, "error", "Delete failed: "+err.Error())
+				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log(c.Request.Context(), "instance.delete", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
+			}
+			// Delete is destructive — bounce to the list page.
+			c.Redirect(http.StatusFound, "/admin/?msg=Instance+deleted.&msg_class=ok")
+
+		default:
+			redirectWithMsg(c, path, "error", "Unknown action: "+action)
+		}
+	}
+}
+
+// redirectWithMsg sends a 302 to the detail page (or the list page
+// for the delete action) with a status message in the query string.
+// The detail template renders the message via .ActionResult /
+// .ActionResultClass.
+func redirectWithMsg(c *gin.Context, fromPath, msgClass, msg string) {
+	parts := splitPath(fromPath)
+	target := "/admin/"
+	if len(parts) >= 3 && (msgClass == "ok" || msgClass == "error") {
+		// Default to the detail page for most actions.
+		// (The delete handler overrides this directly.)
+		target = "/admin/instances/" + parts[2]
+	}
+	c.Redirect(http.StatusFound, target+"?msg="+url.QueryEscape(msg)+"&msg_class="+msgClass)
+}
+
+// splitPath returns the non-empty path segments of p.
+//
+//	splitPath("/admin/instances/abc/rotate") = ["admin", "instances", "abc", "rotate"]
+func splitPath(p string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(p); i++ {
+		if p[i] == '/' {
+			if i > start {
+				out = append(out, p[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(p) {
+		out = append(out, p[start:])
+	}
+	return out
 }
