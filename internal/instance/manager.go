@@ -56,8 +56,32 @@ type managedClient struct {
 // whatsmeow Clients. The waLog parameter is the whatsmeow-internal
 // logger; pass waLog.Noop to silence or a wrapper around your own
 // logger (see cmd/whatsapp-api/main.go for the slog adapter).
+//
+// IMPORTANT: NewWithDB does NOT run the whatsmeow internal migrations.
+// The library's docstring is explicit:
+//
+//	"This method does not call Upgrade automatically like New does,
+//	 so you must call it yourself: container := NewWithDB(...)
+//	 err := container.Upgrade()"
+//
+// Without Upgrade, none of the whatsmeow_* tables (whatsmeow_device,
+// whatsmeow_identity_keys, whatsmeow_sender_keys, whatsmeow_pre_keys,
+// whatsmeow_sessions, whatsmeow_app_state_*, whatsmeow_contacts, ...)
+// exist. Pairing then fails silently at the first PutDevice call with
+// "SQL logic error: no such table: whatsmeow_device" — the phone scans
+// the QR, the server tries to persist the new device identity, and
+// the SQL hits a missing table. This is the missing piece between
+// "QR generated, socket stays open" and "pairing actually succeeds".
+//
+// Note for SQLite: Upgrade also requires `PRAGMA foreign_keys=on`,
+// which is set via the DSN `?_pragma=foreign_keys(1)` in config.go
+// (modernc.org/sqlite uses `_pragma=` prefix, not the mattn driver
+// `?_foreign_keys=on` syntax — the DSN must match the modernc docs).
 func NewManager(db *sql.DB, driver string, waLogger waLog.Logger) (*Manager, error) {
 	container := sqlstore.NewWithDB(db, driver, waLogger)
+	if err := container.Upgrade(context.Background()); err != nil {
+		return nil, fmt.Errorf("upgrade whatsmeow schema: %w", err)
+	}
 	return &Manager{
 		DB:        db,
 		Container: container,

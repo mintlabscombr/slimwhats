@@ -53,7 +53,7 @@ func Load() (*Config, error) {
 	yc := yamlConfig{
 		HTTPAddr:        ":8080",
 		DBDriver:        "sqlite3",
-		DBDSN:           "file:data/whatsmeow-api.db?_foreign_keys=on",
+		DBDSN:           "file:data/whatsmeow-api.db?_pragma=foreign_keys(1)",
 		ManagerUsername: "admin",
 	}
 	if data, err := os.ReadFile("config.yaml"); err == nil {

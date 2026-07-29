@@ -10,7 +10,7 @@
 
 http_addr: "8080"
 db_driver: "sqlite3"
-db_dsn: "file:data/whatsmeow-api.db?_foreign_keys=on"
+db_dsn: "file:data/whatsmeow-api.db?_pragma=foreign_keys(1)"
 manager_username: "admin"
 
 # Comma-separated list of CIDRs trusted to set X-Forwarded-For.
