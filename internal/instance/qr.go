@@ -69,8 +69,9 @@ func EnsureQRChannel(ctx context.Context, client *whatsmeow.Client) (<-chan what
 	// Non-blocking connect in a goroutine
 	go func() {
 		if err := client.Connect(); err != nil {
-			// context-canceled is expected; other errors are logged elsewhere
-			_ = err
+			// context-canceled is expected; other errors are surfaced
+			// by the event subscriber (which writes to instance_logs).
+			slog.Warn("client.Connect returned error", "err", err)
 		}
 	}()
 	return qrChan, nil
@@ -138,7 +139,7 @@ func GetLatestQR(ctx context.Context, client *whatsmeow.Client) (string, error) 
 		if err := client.Connect(); err != nil {
 			// context-canceled is expected; other errors are surfaced
 			// by the event subscriber (which writes to instance_logs).
-			_ = err
+			slog.Warn("client.Connect returned error", "err", err)
 		}
 	}()
 	for {

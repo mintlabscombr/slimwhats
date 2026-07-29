@@ -136,14 +136,15 @@ func (m *Manager) Start(ctx context.Context, instanceID string) error {
 
 	client := whatsmeow.NewClient(device, nil)
 	client.AutoTrustIdentity = true
-	// EnableAutoReconnect=false matches the evolution-go reference
-	// implementation. Auto-reconnect can close the websocket during
-	// the QR scan window if the network blips (60s is the QR
-	// validity), and that interrupts the pairing handshake. The
-	// operator-driven lifecycle endpoints (LifecycleActionHandler
-	// with action=disconnect/reconnect, or Manager.Reconnect) give
-	// us manual control, so auto-reconnect is redundant.
-	client.EnableAutoReconnect = false
+	// EnableAutoReconnect=true (re-enabled after the reference
+	// implementation fix). The whatsmeow library seems to close the
+	// connection in some race conditions during QR pairing, and
+	// without auto-reconnect the websocket stays down and the
+	// phone's "pair success" message never reaches us. The
+	// reference has this set to false but their code path is
+	// different (events.QR.Codes direct consumption, not
+	// GetQRChannel). We'll revisit if this causes other issues.
+	client.EnableAutoReconnect = true
 	// Force PairClientChrome on the QR. whatsmeow's getQRClientType()
 	// uses cli.QRClientType first (per-client override), then falls
 	// back to the global store.DeviceProps.PlatformType. We were
