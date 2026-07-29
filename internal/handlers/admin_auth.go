@@ -23,9 +23,12 @@ type AdminAuthDeps struct {
 	SecureCookie    bool // true in production (HTTPS), false in dev (HTTP)
 }
 
-// LoginRequest is the JSON body for POST /admin/login.
+// LoginRequest is the body for POST /admin/login. Tagged for both
+// `json` and `form` so gin's ShouldBind picks up either a JSON
+// request body or an application/x-www-form-urlencoded browser
+// form submission.
 type LoginRequest struct {
-	Password string `json:"password" binding:"required"`
+	Password string `json:"password" form:"password" binding:"required"`
 }
 
 // LoginResponse is the JSON body returned on successful login.
@@ -90,6 +93,13 @@ func LoginHandler(d AdminAuthDeps) gin.HandlerFunc {
 			d.SecureCookie, // Secure flag — true in prod
 			true,           // HttpOnly
 		)
+		// Browser form submit (Accept: text/html) → 302 to /admin/ so
+		// the user lands on the home page. JSON client → keep the
+		// structured LoginResponse so API consumers can parse it.
+		if wantsHTML(c.GetHeader("Accept")) {
+			c.Redirect(http.StatusFound, "/admin/")
+			return
+		}
 		c.JSON(http.StatusOK, LoginResponse{
 			Username:  sess.Username,
 			ExpiresAt: sess.ExpiresAt.UTC().Format(time.RFC3339),
