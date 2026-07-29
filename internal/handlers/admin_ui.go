@@ -21,9 +21,16 @@ const adminCSS = `
   header .nav a { margin-left: 1rem; opacity: .85; }
   header .nav a:hover { opacity: 1; }
   main { max-width: 1200px; margin: 1.5rem auto; padding: 0 1.5rem; }
-  table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.05); border-radius: 6px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.05); border-radius: 6px; overflow: hidden; table-layout: auto; }
   td.muted, td .muted { color: #bbb; }
-  th, td { padding: .75rem 1rem; text-align: left; border-bottom: 1px solid #eee; }
+  th, td { padding: .75rem 1rem; text-align: left; border-bottom: 1px solid #eee; vertical-align: middle; white-space: nowrap; }
+  th { font-size: .72rem; color: #888; letter-spacing: .04em; }
+  /* Right-align date columns for a more typical table look */
+  td.col-date, th.col-date { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Center the empty-cell "—" placeholder so the column looks balanced */
+  td.col-empty { text-align: center; color: #ccc; }
+  /* Don't let the row-click handler swallow the webhook URL tooltip */
+  td[title] { cursor: help; }
   th { background: #fafafa; font-weight: 600; font-size: .85rem; color: #555; text-transform: uppercase; letter-spacing: .03em; }
   tr:last-child td { border-bottom: 0; }
   tr.row:hover { background: #fafdfb; cursor: pointer; }
@@ -109,14 +116,22 @@ var adminListTmpl = template.Must(
   </div>
   {{if .Instances}}
   <table>
+    <colgroup>
+      <col>               <!-- name (auto) -->
+      <col style="width:90px">  <!-- status badge -->
+      <col style="width:160px"> <!-- phone / JID -->
+      <col style="width:60px">  <!-- webhook -->
+      <col class="col-date" style="width:150px"> <!-- last seen -->
+      <col class="col-date" style="width:150px"> <!-- created -->
+    </colgroup>
     <thead>
       <tr>
         <th>Name</th>
         <th>Status</th>
         <th>Phone / JID</th>
         <th>Webhook</th>
-        <th>Last seen</th>
-        <th>Created</th>
+        <th class="col-date">Last seen</th>
+        <th class="col-date">Created</th>
       </tr>
     </thead>
     <tbody>
@@ -125,9 +140,9 @@ var adminListTmpl = template.Must(
         <td><b>{{.Name}}</b></td>
         <td><span class="badge {{.Status}}">{{.Status}}</span></td>
         <td>{{if .Phone}}{{.Phone}}{{else}}<span class="muted">—</span>{{end}}</td>
-        <td>{{if .WebhookConfigured}}<span title="{{.WebhookURL}}">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
-        <td>{{if .LastSeen}}{{.LastSeen}}{{else}}{{.Created}}{{end}}</td>
-        <td class="muted">{{.Created}}</td>
+        <td class="col-empty">{{if .WebhookConfigured}}<span title="{{.WebhookURL}}">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
+        <td class="col-date">{{if .LastSeen}}{{.LastSeen}}{{else}}{{.Created}}{{end}}</td>
+        <td class="col-date muted">{{.Created}}</td>
       </tr>
     {{end}}
     </tbody>
