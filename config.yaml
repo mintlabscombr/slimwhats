@@ -1,12 +1,14 @@
 # whatsmeow-api default config
 #
-# Non-secret defaults. Sensitive values (APP_MANAGER_PASSWORD, APP_ENCRYPTION_KEY)
-# are env-only and never written to disk.
+# Non-secret defaults. Sensitive values (APP_MANAGER_PASSWORD) are
+# env-only and never written to disk.
 #
-# Env vars override any value set here. Set APP_HTTP_ADDR=":9090" to listen
-# on a different port, etc.
+# Env vars override any value set here. APP_HTTP_ADDR accepts a bare
+# port ("9090" -> ":9090" on all interfaces), the canonical ":9090"
+# form, or a specific host ("127.0.0.1:9090"). See config.go's
+# normalizeHTTPAddr for details.
 
-http_addr: ":8080"
+http_addr: "8080"
 db_driver: "sqlite3"
 db_dsn: "file:data/whatsmeow-api.db?_foreign_keys=on"
 manager_username: "admin"
