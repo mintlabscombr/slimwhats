@@ -237,6 +237,16 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminAPI.POST("/instances/:id/reconnect", handlers.ReconnectInstanceHandler(lifecycleDeps))
 	adminAPI.DELETE("/instances/:id", handlers.DeleteInstanceHandler(lifecycleDeps))
 
+	// API-key management (US-031)
+	apiKeyDeps := handlers.APIKeyDeps{
+		Store:           instanceStore,
+		ManagerPassword: cfg.ManagerPassword,
+		Audit:           audit,
+	}
+	adminAPI.PUT("/instances/:id/api-key", handlers.SetAPIKeyHandler(apiKeyDeps))
+	adminAPI.POST("/instances/:id/api-key/rotate", handlers.RotateAPIKeyHandler(apiKeyDeps))
+	adminAPI.POST("/instances/:id/api-key/reveal", handlers.RevealAPIKeyHandler(apiKeyDeps))
+
 	// Swagger UI + raw OpenAPI spec (US-017 + US-018)
 	r.GET("/swagger", handlers.SwaggerUIHandler())
 	r.GET("/swagger/openapi.yaml", handlers.OpenAPISpecHandler())

@@ -320,6 +320,85 @@ paths:
           description: Invalid URL or secret length
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /admin/api/instances/{id}/api-key:
+    put:
+      tags: [instances]
+      summary: Set a custom API key
+      description: |
+        Operator-supplied key. Must match `^sk_live_[A-Za-z0-9]{16,128}$`.
+        The old key dies immediately — clients using it will get 401.
+      security: [{ sessionCookie: [] }]
+      parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_key]
+              properties:
+                api_key: { type: string, pattern: "^sk_live_[A-Za-z0-9]{16,128}$" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  api_key_masked: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /admin/api/instances/{id}/api-key/rotate:
+    post:
+      tags: [instances]
+      summary: Auto-generate a new API key
+      description: Returns the new plaintext key exactly once. Old key dies immediately.
+      security: [{ sessionCookie: [] }]
+      parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
+      responses:
+        "200":
+          description: New key generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  api_key: { type: string, description: "Plaintext — SHOWN ONCE" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /admin/api/instances/{id}/api-key/reveal:
+    post:
+      tags: [instances]
+      summary: Reveal the plaintext API key
+      description: |
+        Requires `manager_password` in the body — the session cookie
+        alone is NOT sufficient. **v1 limitation**: API keys are
+        bcrypt-hashed and cannot be recovered. The response explains
+        the recovery paths (set / rotate).
+      security: [{ sessionCookie: [] }]
+      parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [manager_password]
+              properties:
+                manager_password: { type: string }
+      responses:
+        "200":
+          description: v1 limitation message
+        "401":
+          description: manager_password mismatch
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /admin/api/instances/{id}/webhook-deliveries:
     get:
       tags: [webhook]

@@ -42,14 +42,25 @@ func (a *AuditLoggerImpl) Log(ctx context.Context, action, targetID, username, s
 		} else {
 			dataJSON = string(b)
 		}
+	} else {
+		dataJSON = "{}"
 	}
 	now := time.Now().UTC()
+	// The NOT NULL columns (username, source_ip) need real values; fall
+	// back to a placeholder so an empty string doesn't blow up the
+	// insert.
+	if username == "" {
+		username = "(unknown)"
+	}
+	if sourceIP == "" {
+		sourceIP = "0.0.0.0"
+	}
 	_, err := a.DB.ExecContext(ctx, `
 		INSERT INTO admin_actions
 			(timestamp, username, action, target_id, source_ip, user_agent, data)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		now, nullableStr(username), action, nullableStr(targetID),
-		nullableStr(sourceIP), nullableStr(userAgent), dataJSON,
+		now, username, action, nullableStr(targetID),
+		sourceIP, nullableStr(userAgent), dataJSON,
 	)
 	if err != nil {
 		slog.Warn("audit insert", "action", action, "err", err)

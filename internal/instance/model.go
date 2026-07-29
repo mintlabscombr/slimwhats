@@ -204,6 +204,10 @@ func generateAPIKey() (string, error) {
 	return "sk_live_" + base64URLNoPad(buf), nil
 }
 
+// GenerateAPIKey is the exported version of generateAPIKey, used by
+// the API-key rotate handler.
+func GenerateAPIKey() (string, error) { return generateAPIKey() }
+
 // SetAPIKey replaces the api_key_hash for an instance and bumps
 // api_key_set_at + updated_at. Used by the rotate and set-custom flows.
 func (s *Store) SetAPIKey(id, newHash string) error {
