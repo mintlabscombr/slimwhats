@@ -1,0 +1,23 @@
+# Build artifacts
+bin/
+data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Local config and secrets
+config.local.yaml
+.env
+.env.*
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Test artifacts
+coverage.out
+*.test
+*.out

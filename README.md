@@ -68,4 +68,52 @@ make clean   # remove build artifacts and local DB files
 
 ## Status
 
-US-001 (project skeleton + config loader) is shipped. See `../kanban.md` and `../PROGRESS.md` for the full plan and progress.
+All 31 user stories from the PRD are shipped. See `../kanban.md` and `../PROGRESS.md` for the full plan and per-US shipping log.
+
+## Docker
+
+The repo ships a multi-stage `Dockerfile` and a `docker-compose.yml` example.
+
+### Build the image
+
+```bash
+make docker          # from the api/ directory
+# or, from the repo root:
+docker build -t whatsmeow-api -f api/Dockerfile .
+```
+
+The build is two stages:
+
+1. `golang:1.25-alpine` — compiles a static binary with `CGO_ENABLED=0` and `-ldflags="-s -w"`
+2. `gcr.io/distroless/static-debian12:nonroot` — copies the binary, runs as uid 65532
+
+Resulting image size: ~20 MB (target was < 30 MB).
+
+### Run with docker compose (recommended)
+
+```bash
+cp .env.example .env       # then edit to set APP_MANAGER_PASSWORD and APP_ENCRYPTION_KEY
+docker compose up -d
+docker compose logs -f
+```
+
+The default compose file mounts a `whatsmeow-data` volume at `/data` so the SQLite database survives container restarts.
+
+To switch to PostgreSQL, uncomment the `postgres` service in `docker-compose.yml` and set:
+
+```bash
+APP_DB_DRIVER=postgres
+APP_DB_DSN=postgres://whatsmeow:whatsmeow@postgres:5432/whatsmeow?sslmode=disable
+```
+
+### Run the image directly
+
+```bash
+docker run --rm -p 8080:8080 \
+    -e APP_MANAGER_PASSWORD=your-password \
+    -e APP_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
+    -v whatsmeow-data:/data \
+    whatsmeow-api
+```
+
+The service answers on `http://localhost:8080`. `/healthz` is unauthenticated and returns 200 for liveness probes (from the host, since the distroless image has no curl).
