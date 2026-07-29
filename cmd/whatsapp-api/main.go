@@ -240,7 +240,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminUI := r.Group("/admin", auth.SessionMiddleware(sessions))
 	adminUI.GET("/", handlers.AdminListPage(db))
 	adminUI.GET("/instances/new", handlers.AdminNewPage())
-	adminUI.GET("/instances/:id", handlers.AdminDetailPage(db))
+	adminUI.GET("/instances/:id", handlers.AdminDetailPage(db, mgr))
 	// Form-based dispatcher for the lifecycle buttons in the
 	// manager detail page (Connect/Disconnect/Reconnect). Reads
 	// the `action` form value and routes to the right internal

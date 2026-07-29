@@ -1,14 +1,20 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	qrcode "github.com/skip2/go-qrcode"
+
+	"github.com/mauroneto/whatsmeow-api/internal/instance"
 )
 
 // adminCSS is the shared stylesheet for every manager page. Centralized
@@ -203,10 +209,10 @@ var adminDetailTmpl = template.Must(
   </form>
   {{if .ActionResult}}<div class="{{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
   {{if .QR}}
-  <div style="margin-top:1rem">
-    <h3>QR code</h3>
-    <p class="muted">Scan with the WhatsApp app to pair. Refreshes every 60s.</p>
-    <pre style="background:#fff;border:1px solid #eee;padding:1rem;border-radius:4px;word-break:break-all">{{.QR}}</pre>
+  <div style="margin-top:1rem;text-align:center">
+    <h3 style="text-align:left">QR code</h3>
+    <p class="muted" style="text-align:left">Open WhatsApp → Linked Devices → Link a Device → scan this code. Refresh the page (Cmd+R) for a new one — the QR rotates every 60s.</p>
+    <img src="{{.QR}}" alt="WhatsApp pairing QR code" style="display:inline-block;border:1px solid #ddd;padding:.5rem;background:#fff;border-radius:6px">
   </div>
   {{end}}
 </div>
@@ -367,7 +373,12 @@ func AdminNewSubmit(store interface {
 }
 
 // AdminDetailPage handles GET /admin/instances/{id}.
-func AdminDetailPage(db *sql.DB) gin.HandlerFunc {
+//
+// For an unpaired instance (status == "created"), the handler auto-
+// fetches a fresh QR code from whatsmeow and renders it as a base64-
+// encoded PNG data URI — no external CDN, no JS, no extra round-trip.
+// The user just refreshes the page (Cmd+R) to get a new QR.
+func AdminDetailPage(db *sql.DB, mgr *instance.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		v, err := getInstanceView(db, id)
@@ -400,15 +411,55 @@ func AdminDetailPage(db *sql.DB) gin.HandlerFunc {
 		}
 		_ = v.CreatedAt
 		_ = v.UpdatedAt
+
+		// Auto-fetch a fresh QR if the instance isn't paired yet.
+		// Skips on already-paired instances (the QR block hides itself
+		// in the template via {{if .QR}}).
+		var qrPNG template.URL
+		if v.Status == instance.StatusCreated || v.Status == instance.StatusPairing {
+			qrPNG = fetchQRPNG(mgr, id)
+		}
+
 		renderAdmin(adminDetailTmpl, v.Name, gin.H{
 			"Instance":          v,
 			"ActionResult":      c.Query("msg"),
 			"ActionResultClass": c.Query("msg_class"),
-			"QR":                c.Query("qr"),
+			"QR":                qrPNG,
 			"RevealedKey":       c.Query("revealed_key"),
 			"NewAPIKey":         c.Query("new_api_key"),
 		}, c)
 	}
+}
+
+// fetchQRPNG lazy-loads the whatsmeow client, pulls one QR payload,
+// renders it as a PNG, and returns the data URI as a template.URL
+// (which the html/template engine treats as already-safe, bypassing
+// the URL-context auto-escape that would otherwise strip the
+// "data:" scheme). Returns template.URL("") on failure.
+//
+// The 30s timeout is generous because whatsmeow's first QR can take
+// a few seconds to come through (the client has to start its
+// internal handshake). Subsequent refreshes are fast.
+func fetchQRPNG(mgr *instance.Manager, instanceID string) template.URL {
+	cli := mgr.Get(instanceID)
+	if cli == nil || cli.IsLoggedIn() {
+		return template.URL("") // missing or already paired; nothing to show
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	raw, err := instance.GetLatestQR(ctx, cli)
+	if err != nil || raw == "" {
+		slog.Warn("fetchQRPNG: get latest QR failed", "id", instanceID, "err", err)
+		return template.URL("")
+	}
+	// Render as 256x256 PNG, medium error-correction. Pure Go, no
+	// external CDN; the PNG is base64-embedded in the HTML.
+	png, err := qrcode.Encode(raw, qrcode.Medium, 256)
+	if err != nil {
+		slog.Warn("fetchQRPNG: qrcode.Encode failed", "err", err)
+		return template.URL("")
+	}
+	return template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png))
 }
 
 // AdminAuditPage handles GET /admin/audit.
