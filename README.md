@@ -14,8 +14,10 @@ See [`../specs/prd-whatsapp-rest-api.md`](../specs/prd-whatsapp-rest-api.md) for
 # Required: manager panel password (any non-empty string)
 export APP_MANAGER_PASSWORD="your-secure-password"
 
-# Optional: HTTP listen address (default ":8080")
-export APP_HTTP_ADDR=":8080"
+# Optional: HTTP listen address. Accepts a bare port ("8080" binds to
+# :8080 on all interfaces), the canonical ":8080" form, or a specific
+# host ("127.0.0.1:8080"). Default ":8080".
+export APP_HTTP_ADDR="8080"
 
 # Optional: manager username shown on the login form (default "admin")
 export APP_MANAGER_USERNAME="admin"

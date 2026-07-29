@@ -87,3 +87,40 @@ func TestLoad_HappyPathNoKey(t *testing.T) {
 		t.Errorf("EncryptionKey should be nil, got %v bytes", len(c.EncryptionKey))
 	}
 }
+
+// TestNormalizeHTTPAddr is a small table test for the APP_HTTP_ADDR
+// shorthand: operators can pass just "8080" instead of ":8080".
+func TestNormalizeHTTPAddr(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ":8080"},                        // empty -> default
+		{"8080", ":8080"},                    // bare port -> prepend ':'
+		{":8080", ":8080"},                   // already canonical
+		{"127.0.0.1:8080", "127.0.0.1:8080"}, // host:port, unchanged
+		{"0.0.0.0:9090", "0.0.0.0:9090"},     // explicit all interfaces
+		{"[::1]:8080", "[::1]:8080"},         // IPv6, has ':' so unchanged
+		{"localhost:3000", "localhost:3000"}, // hostname, has ':' so unchanged
+	}
+	for _, tc := range cases {
+		got := normalizeHTTPAddr(tc.in)
+		if got != tc.want {
+			t.Errorf("normalizeHTTPAddr(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestLoad_HTTPAddrShorthand verifies that APP_HTTP_ADDR=8080 (no
+// leading colon) works end-to-end: the loaded Config.HTTPAddr must be
+// ":8080" so net/http can bind.
+func TestLoad_HTTPAddrShorthand(t *testing.T) {
+	os.Setenv("APP_MANAGER_PASSWORD", "x")
+	os.Setenv("APP_HTTP_ADDR", "8080")
+	c, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.HTTPAddr != ":8080" {
+		t.Errorf("HTTPAddr = %q, want %q (operator passed bare '8080' shorthand)", c.HTTPAddr, ":8080")
+	}
+}

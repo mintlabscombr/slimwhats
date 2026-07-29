@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -64,7 +65,7 @@ func Load() (*Config, error) {
 	}
 
 	c := &Config{
-		HTTPAddr:        envOr("APP_HTTP_ADDR", yc.HTTPAddr),
+		HTTPAddr:        normalizeHTTPAddr(envOr("APP_HTTP_ADDR", yc.HTTPAddr)),
 		DBDriver:        envOr("APP_DB_DRIVER", yc.DBDriver),
 		DBDSN:           envOr("APP_DB_DSN", yc.DBDSN),
 		ManagerUsername: envOr("APP_MANAGER_USERNAME", yc.ManagerUsername),
@@ -105,4 +106,23 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// normalizeHTTPAddr accepts the address in three forms and returns the
+// canonical `host:port` form that http.Server expects:
+//   - "8080"           -> ":8080"           (bare port → all interfaces)
+//   - ":8080"          -> ":8080"           (already canonical)
+//   - "127.0.0.1:8080" -> "127.0.0.1:8080"  (host:port, unchanged)
+//   - "[::1]:8080"     -> "[::1]:8080"      (IPv6, unchanged — contains ':')
+//
+// The bare-port form is the common shorthand; net/http refuses to
+// listen on "8080" (it interprets it as a hostname and fails to bind).
+func normalizeHTTPAddr(addr string) string {
+	if addr == "" {
+		return ":8080"
+	}
+	if !strings.Contains(addr, ":") {
+		return ":" + addr
+	}
+	return addr
 }
