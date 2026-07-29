@@ -1,0 +1,18 @@
+# whatsmeow-api default config
+#
+# Non-secret defaults. Sensitive values (APP_MANAGER_PASSWORD, APP_ENCRYPTION_KEY)
+# are env-only and never written to disk.
+#
+# Env vars override any value set here. Set APP_HTTP_ADDR=":9090" to listen
+# on a different port, etc.
+
+http_addr: ":8080"
+db_driver: "sqlite3"
+db_dsn: "file:data/whatsmeow-api.db?_foreign_keys=on"
+manager_username: "admin"
+
+# Comma-separated list of CIDRs trusted to set X-Forwarded-For.
+# Empty = trust nothing; use the direct remote address.
+# trusted_proxies:
+#   - "10.0.0.0/8"
+#   - "127.0.0.1/32"
