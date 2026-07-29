@@ -36,8 +36,11 @@ func respondUnauth(c *gin.Context) {
 		})
 		return
 	}
-	c.AbortWithStatus(http.StatusFound) // 302
-	c.Header("Location", "/admin/login")
+	// For HTML pages, redirect to /admin/login. Use c.Redirect (not
+	// c.AbortWithStatus + c.Header) — the latter commits the response
+	// before the Location header is attached, so the browser gets a
+	// 302 with nowhere to go.
+	c.Redirect(http.StatusFound, "/admin/login")
 }
 
 func isAPIRequest(c *gin.Context) bool {
