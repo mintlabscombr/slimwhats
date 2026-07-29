@@ -5,10 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
 )
 
 // QRState holds the latest QR code event for an instance. The whatsmeow
@@ -112,6 +115,21 @@ func GetLatestQR(ctx context.Context, client *whatsmeow.Client) (string, error) 
 		// re-init the QR channel.
 		time.Sleep(100 * time.Millisecond)
 	}
+	// Diagnostic: log what the whatsmeow library will use to
+	// determine the trailing PairClientType field in the QR
+	// payload. The library checks (1) cli.QRClientType first, then
+	// (2) store.DeviceProps.GetPlatformType() (the global). We
+	// force (1) in Manager.Start to be Chrome; the log below
+	// confirms the override is in effect and shows what (2) would
+	// have resolved to (in case (1) is somehow empty and the
+	// fallback fires). Trailing field is what the phone sees as
+	// the "client identity" — ",1" (Chrome) is what we want; ",9"
+	// (OtherWebClient / fallback) is what gets us rejected.
+	slog.Debug("GetLatestQR: client identity for QR",
+		"cli_QRClientType", string(client.QRClientType),
+		"global_PlatformType", store.DeviceProps.GetPlatformType().String(),
+		"global_Version_Primary", store.DeviceProps.GetVersion().GetPrimary(),
+		"global_Version_Secondary", store.DeviceProps.GetVersion().GetSecondary())
 	qrChan, err := client.GetQRChannel(ctx)
 	if err != nil {
 		return "", fmt.Errorf("get qr channel: %w", err)
@@ -128,6 +146,16 @@ func GetLatestQR(ctx context.Context, client *whatsmeow.Client) (string, error) 
 		case item := <-qrChan:
 			switch item.Event {
 			case "code":
+				// Diagnostic: print the trailing field (PairClientType)
+				// so the operator can verify the QR is now ",1" (Chrome)
+				// and not ",9" (OtherWebClient). Format is
+				// "...,<PairClientType>" — the last comma-separated
+				// field in the URL fragment after the '#'.
+				if i := strings.LastIndex(item.Code, ","); i >= 0 {
+					slog.Info("GetLatestQR: emitted QR with client type",
+						"client_type", item.Code[i+1:],
+						"qr_prefix", item.Code[:min(80, len(item.Code))]+"...")
+				}
 				return item.Code, nil
 			case "success":
 				return "", ErrAlreadyPaired

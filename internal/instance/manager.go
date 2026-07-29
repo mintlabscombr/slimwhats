@@ -137,6 +137,18 @@ func (m *Manager) Start(ctx context.Context, instanceID string) error {
 	client := whatsmeow.NewClient(device, nil)
 	client.AutoTrustIdentity = true
 	client.EnableAutoReconnect = true
+	// Force PairClientChrome on the QR. whatsmeow's getQRClientType()
+	// uses cli.QRClientType first (per-client override), then falls
+	// back to the global store.DeviceProps.PlatformType. We were
+	// hitting the fallback and emitting "OtherWebClient" (trailing
+	// field ",9") because the global was set up as UNKNOWN/Chrome
+	// and other code paths can race / overwrite it. Setting
+	// cli.QRClientType directly is the surgical fix — the QR now
+	// emits ",1" (Chrome) and the phone no longer sees a
+	// "suspicious generic web client" identity. The whatsmeow
+	// library's own check on cli.QRClientType is the first thing
+	// in getQRClientType() so this wins over the global.
+	client.QRClientType = whatsmeow.PairClientChrome
 
 	// Register the event handler IMMEDIATELY (before publishing to the
 	// map) if a global callback has been set via SubscribeEvents.
