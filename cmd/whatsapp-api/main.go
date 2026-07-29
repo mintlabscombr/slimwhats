@@ -143,6 +143,8 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager) *gin.Eng
 	// Per-instance API-key routes (Bearer auth)
 	api := r.Group("/api/v1", handlers.InstanceAPIKeyAuth(mgr))
 	api.GET("/ping", handlers.PingHandler())
+	api.POST("/messages/text", handlers.SendTextHandler())
+	api.POST("/messages/buttons", handlers.SendButtonsHandler())
 
 	return r
 }
