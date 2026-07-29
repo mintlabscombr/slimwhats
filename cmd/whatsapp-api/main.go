@@ -219,16 +219,21 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 		SecureCookie:    false, // TODO: detect via X-Forwarded-Proto or env flag
 	}
 	audit := handlers.NewAuditLogger(db)
+	// Login / logout are unauthenticated. Everything else under /admin/*
+	// (HTML pages + JSON API) requires a valid session.
 	r.POST("/admin/login", handlers.LoginHandler(authDeps))
 	r.POST("/admin/logout", handlers.LogoutHandler(authDeps))
 	r.GET("/admin/login", handlers.LoginPageHandler(cfg.ManagerUsername))
-	r.GET("/admin/", handlers.AdminListPage(db))
-	r.GET("/admin/instances/new", handlers.AdminNewPage())
-	r.GET("/admin/instances/:id", handlers.AdminDetailPage(db))
-	r.GET("/admin/audit", handlers.AdminAuditPage(db))
 
-	// Manager-authenticated API routes (SessionMiddleware returns 401
-	// JSON for /admin/api/* and 302-redirects /admin/* HTML pages).
+	// Manager-authenticated HTML pages (SessionMiddleware returns 401
+	// for JSON requests and 302-redirects browser HTML to /admin/login).
+	adminUI := r.Group("/admin", auth.SessionMiddleware(sessions))
+	adminUI.GET("/", handlers.AdminListPage(db))
+	adminUI.GET("/instances/new", handlers.AdminNewPage())
+	adminUI.GET("/instances/:id", handlers.AdminDetailPage(db))
+	adminUI.GET("/audit", handlers.AdminAuditPage(db))
+
+	// Manager-authenticated JSON API.
 	adminAPI := r.Group("/admin/api", auth.SessionMiddleware(sessions))
 	adminAPI.POST("/instances", handlers.CreateInstanceHandler(instanceStore))
 	adminAPI.GET("/instances", handlers.ListInstancesHandler(instanceStore))

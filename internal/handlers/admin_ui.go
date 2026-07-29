@@ -2,21 +2,18 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"html/template"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-// adminLayout is the shared HTML wrapper for manager pages.
-var adminLayout = template.Must(template.New("adminLayout").Parse(`<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>whatsmeow-api — Manager</title>
-<style>
+// adminCSS is the shared stylesheet for every manager page. Centralized
+// so all pages get the same look without per-template duplication.
+const adminCSS = `
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; margin: 0; padding: 0; color: #222; }
   header { background: #1a7f37; color: #fff; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
   header h1 { margin: 0; font-size: 1.25rem; }
@@ -48,9 +45,11 @@ var adminLayout = template.Must(template.New("adminLayout").Parse(`<!doctype htm
   .muted { color: #888; font-size: .85rem; }
   .error { background: #fee; border: 1px solid #fcc; color: #a00; padding: .75rem; border-radius: 4px; }
   .ok { background: #d4f7dc; border: 1px solid #a6e2b3; color: #166a2e; padding: .75rem; border-radius: 4px; }
-</style>
-</head>
-<body>
+`
+
+// chromeHeader is the shared <header> block (the green bar with nav).
+// Each page template includes it via the chrome funcMap.
+const chromeHeader = `
 <header>
   <h1><a href="/admin/">whatsmeow-api</a></h1>
   <div class="nav">
@@ -60,14 +59,44 @@ var adminLayout = template.Must(template.New("adminLayout").Parse(`<!doctype htm
     <form style="display:inline" method="POST" action="/admin/logout"><button class="btn secondary" style="padding:.3rem .6rem;font-size:.8rem">Logout</button></form>
   </div>
 </header>
-<main>{{template "content" .}}</main>
-</body>
-</html>
-`))
+`
 
-// adminListTmpl is the home page (US-019).
-var adminListTmpl = template.Must(adminLayout.New("list").Parse(`{{define "content"}}
-<div class="card">
+// chromeFunc is the FuncMap entry that wraps a page body in the full
+// admin layout. Each page template calls it as {{chrome .Body}}.
+//
+// Why this approach (vs the old "adminLayout template + {{define "content"}}"
+// pattern): Go's html/template shares the parse tree across templates
+// that descend from the same parent, so multiple `{{define "content"}}`
+// blocks all overwrite each other — only the last-defined one wins,
+// which made every page render the audit page. Inlining the chrome
+// via a FuncMap sidesteps the shared-tree issue entirely.
+func chromeFunc(title string, body template.HTML) (template.HTML, error) {
+	out := fmt.Sprintf(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>whatsmeow-api — %s</title>
+<style>%s</style>
+</head>
+<body>
+%s
+<main>%s</main>
+</body>
+</html>`, title, adminCSS, chromeHeader, string(body))
+	return template.HTML(out), nil
+}
+
+// adminFuncs is the FuncMap shared by all admin page templates.
+var adminFuncs = template.FuncMap{
+	"chrome": chromeFunc,
+}
+
+// adminListTmpl is the home page (US-019). Calls {{chrome .Body "Title"}}
+// to render the full page; the chrome func wraps the body in the
+// shared layout.
+var adminListTmpl = template.Must(
+	template.New("list").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center">
     <h2>Instances</h2>
     <a class="btn" href="/admin/instances/new">+ New instance</a>
@@ -93,12 +122,12 @@ var adminListTmpl = template.Must(adminLayout.New("list").Parse(`{{define "conte
   {{else}}
   <p class="muted">No instances yet. <a href="/admin/instances/new">Create one</a>.</p>
   {{end}}
-</div>
-{{end}}`))
+</div>{{end}}`),
+)
 
 // adminNewTmpl is the create form (US-020).
-var adminNewTmpl = template.Must(adminLayout.New("new").Parse(`{{define "content"}}
-<div class="card" style="max-width:540px">
+var adminNewTmpl = template.Must(
+	template.New("new").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card" style="max-width:540px">
   <h2>New instance</h2>
   {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
   <form method="POST" action="/admin/instances/new">
@@ -111,12 +140,12 @@ var adminNewTmpl = template.Must(adminLayout.New("new").Parse(`{{define "content
       <a class="btn secondary" href="/admin/">Cancel</a>
     </div>
   </form>
-</div>
-{{end}}`))
+</div>{{end}}`),
+)
 
 // adminDetailTmpl is the per-instance page (US-021). Compact for v1.
-var adminDetailTmpl = template.Must(adminLayout.New("detail").Parse(`{{define "content"}}
-<div class="card">
+var adminDetailTmpl = template.Must(
+	template.New("detail").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center">
     <h2>{{.Instance.Name}}</h2>
     <div>
@@ -191,12 +220,12 @@ var adminDetailTmpl = template.Must(adminLayout.New("detail").Parse(`{{define "c
   <form method="POST" action="/admin/instances/{{.Instance.ID}}/delete" style="display:flex;gap:.5rem;align-items:center">
     <button class="btn danger" type="submit" onclick="return confirm('Delete this instance? This is irreversible.')">Delete instance</button>
   </form>
-</div>
-{{end}}`))
+</div>{{end}}`),
+)
 
 // adminAuditTmpl is the audit log page (US-030).
-var adminAuditTmpl = template.Must(adminLayout.New("audit").Parse(`{{define "content"}}
-<div class="card">
+var adminAuditTmpl = template.Must(
+	template.New("audit").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card">
   <h2>Audit log</h2>
   {{if .Entries}}
   <table>
@@ -217,8 +246,29 @@ var adminAuditTmpl = template.Must(adminLayout.New("audit").Parse(`{{define "con
   {{else}}
   <p class="muted">No actions logged yet.</p>
   {{end}}
-</div>
-{{end}}`))
+</div>{{end}}`),
+)
+
+// renderAdmin is a tiny helper: execute the named "render" template
+// against data, wrap it in the chrome via the FuncMap, and write to
+// c.Writer. Returns true on success, false on a render error (which
+// has already been written to the response).
+func renderAdmin(tmpl *template.Template, title string, data any, c *gin.Context) bool {
+	var buf strings.Builder
+	if err := tmpl.ExecuteTemplate(&buf, "render", data); err != nil {
+		c.String(http.StatusInternalServerError, "template render: %v", err)
+		return false
+	}
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	// Run the chrome function with the rendered body.
+	html, err := chromeFunc(title, template.HTML(buf.String()))
+	if err != nil {
+		c.String(http.StatusInternalServerError, "chrome: %v", err)
+		return false
+	}
+	_, _ = c.Writer.Write([]byte(html))
+	return true
+}
 
 // InstanceRow is the row in the home page table.
 type InstanceRow struct {
@@ -263,22 +313,22 @@ func AdminListPage(db *sql.DB) gin.HandlerFunc {
 			r.Created = r.CreatedAt.UTC().Format("2006-01-02 15:04")
 			list = append(list, r)
 		}
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		_ = adminListTmpl.Execute(c.Writer, gin.H{"Instances": list})
+		renderAdmin(adminListTmpl, "Instances", gin.H{"Instances": list}, c)
 	}
 }
 
 // AdminNewPage handles GET /admin/instances/new.
 func AdminNewPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		_ = adminNewTmpl.Execute(c.Writer, gin.H{
+		renderAdmin(adminNewTmpl, "New instance", gin.H{
 			"Error": c.Query("error"),
-		})
+		}, c)
 	}
 }
 
 // AdminNewSubmit handles POST /admin/instances/new (form action).
+// Stub kept for backward compat — the actual create goes through
+// the JSON API at /admin/api/instances.
 func AdminNewSubmit(store interface {
 	Create(in interface{ Name() string }) (id, name, apiKey, status string, err error)
 }) gin.HandlerFunc {
@@ -319,16 +369,14 @@ func AdminDetailPage(db *sql.DB) gin.HandlerFunc {
 		}
 		_ = v.CreatedAt
 		_ = v.UpdatedAt
-
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		_ = adminDetailTmpl.Execute(c.Writer, gin.H{
+		renderAdmin(adminDetailTmpl, v.Name, gin.H{
 			"Instance":          v,
 			"ActionResult":      c.Query("msg"),
 			"ActionResultClass": c.Query("msg_class"),
 			"QR":                c.Query("qr"),
 			"RevealedKey":       c.Query("revealed_key"),
 			"NewAPIKey":         c.Query("new_api_key"),
-		})
+		}, c)
 	}
 }
 
@@ -364,8 +412,7 @@ func AdminAuditPage(db *sql.DB) gin.HandlerFunc {
 			}
 			list = append(list, e)
 		}
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		_ = adminAuditTmpl.Execute(c.Writer, gin.H{"Entries": list})
+		renderAdmin(adminAuditTmpl, "Audit log", gin.H{"Entries": list}, c)
 	}
 }
 
