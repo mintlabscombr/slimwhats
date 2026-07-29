@@ -53,7 +53,6 @@ func main() {
 		slog.Error("open db", "err", err)
 		os.Exit(1)
 	}
-	defer db.Close()
 	if err := store.Migrate(db, cfg.DBDriver); err != nil {
 		slog.Error("migrate db", "err", err)
 		os.Exit(1)
@@ -77,13 +76,11 @@ func main() {
 	}
 	cancelStart()
 	slog.Info("instance manager ready", "count", len(mgr.All()))
-	defer mgr.StopAll()
 
 	// Webhook dispatcher: per-instance encrypted secret delivery with
 	// exponential-backoff retry.
 	dispatcher := webhook.NewDispatcher(db, instance.NewStore(db), cfg.EncryptionKey, webhook.DefaultConfig())
 	dispatcher.Start()
-	defer dispatcher.Shutdown(context.Background())
 	mgr.SubscribeEvents(func(instanceID string, evt interface{}) {
 		ev, ok := webhook.Normalize(instanceID, evt)
 		if !ok {
@@ -122,14 +119,41 @@ func main() {
 		slog.Error("http server failed", "err", err)
 		os.Exit(1)
 	case <-ctx.Done():
-		slog.Info("shutdown signal received, draining")
+		slog.Info("shutdown signal received, draining (30s grace)")
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Graceful shutdown — explicit sequence so we can log each step
+	// and bound the total time. Order: HTTP stops accepting new
+	// connections → webhook dispatcher drains in-flight events → each
+	// whatsmeow Client disconnects → DB closes. Defers still cover the
+	// last two even if the explicit calls error out.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	// 1. HTTP server
+	slog.Info("draining http server", "timeout", 30*time.Second)
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		slog.Error("graceful shutdown failed", "err", err)
-		os.Exit(1)
+		slog.Error("http shutdown failed", "err", err)
+	} else {
+		slog.Info("http server stopped")
+	}
+
+	// 2. Webhook dispatcher (workers finish the in-flight delivery, no
+	// new jobs are accepted because the channel was already closed by
+	// Shutdown once the HTTP server is quiet)
+	slog.Info("draining webhook dispatcher")
+	dispatcher.Shutdown(shutdownCtx)
+	slog.Info("webhook dispatcher stopped")
+
+	// 3. All whatsmeow clients
+	slog.Info("disconnecting instance clients", "count", len(mgr.All()))
+	mgr.StopAll()
+	slog.Info("instance clients disconnected")
+
+	// 4. DB
+	slog.Info("closing database")
+	if err := db.Close(); err != nil {
+		slog.Error("db close failed", "err", err)
 	}
 	slog.Info("shutdown complete")
 }
