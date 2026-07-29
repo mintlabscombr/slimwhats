@@ -3,3 +3,7 @@ data/
 *.db
 *.db-journal
 config.local.yaml
+
+# air (hot-reload) artifacts
+tmp/
+build-errors.log

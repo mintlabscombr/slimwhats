@@ -1,0 +1,50 @@
+# air configuration — hot reload for the whatsmeow-api service.
+# Run with: `air` (or `make dev` from the api/ dir).
+#
+# Watches Go source + SQL migrations + OpenAPI YAML. On any change,
+# stops the running binary (SIGTERM, with 500ms grace), rebuilds,
+# and restarts. The binary handles SIGTERM via the explicit graceful
+# shutdown sequence (HTTP -> dispatcher -> clients -> DB).
+
+# Build command: produce the binary in ./bin/.
+[build]
+  args_bin = []
+  bin = "./bin/whatsapp-api"
+  cmd = "go build -o ./bin/whatsapp-api ./cmd/whatsapp-api"
+  delay = 1000
+  entrypoint = ["./bin/whatsapp-api"]
+  exclude_dir = ["assets", "bin", "data", "tmp", "vendor", "test"]
+  exclude_file = []
+  exclude_regex = ["_test\\.go", ".*\\.db$", ".*\\.db-wal$", ".*\\.db-shm$"]
+  exclude_unchanged = true
+  follow_symlink = false
+  full_bin = ""
+  include_dir = ["cmd", "internal", "migrations"]
+  include_ext = ["go", "tpl", "tmpl", "html", "yaml", "yml", "sql"]
+  include_file = []
+  kill_delay = 500
+  log = "build-errors.log"
+  send_interrupt = true
+  stop_on_error = false
+
+# Color output
+[color]
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+# Logging
+[log]
+  main_only = false
+  silent = false
+  time = true
+
+# Misc
+[misc]
+  clean_on_exit = false
+
+# Screen: clears the terminal on each rebuild
+[screen]
+  clear_on_rebuild = true
+  keep_scroll = true
