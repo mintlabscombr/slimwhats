@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx registers as "postgres"
 	_ "modernc.org/sqlite"             // modernc.org/sqlite registers as "sqlite"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
 	"github.com/mauroneto/whatsmeow-api/internal/auth"
@@ -99,6 +101,9 @@ func main() {
 		case *events.LoggedOut:
 			_ = instanceStore.SetStatus(instanceID, instance.StatusLoggedOut, nil, nil)
 		}
+		// Mirror every event into instance_logs (US-029). Best-effort
+		// — a logging failure must not break the webhook pipeline.
+		logEntry(instanceStore, instanceID, evt)
 		// Forward to webhooks.
 		ev, ok := webhook.Normalize(instanceID, evt)
 		if !ok {
@@ -216,6 +221,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminAPI.GET("/instances/:id", handlers.GetInstanceHandler(instanceStore))
 	adminAPI.GET("/instances/:id/qr", handlers.InstanceQRHandler(mgr))
 	adminAPI.GET("/instances/:id/status", handlers.InstanceStatusHandler(mgr))
+	adminAPI.GET("/instances/:id/logs", handlers.ListInstanceLogsHandler(instanceStore))
 	adminAPI.PUT("/instances/:id/webhook", handlers.SetWebhookHandler(instanceStore, cfg.EncryptionKey))
 	adminAPI.GET("/instances/:id/webhook-deliveries", handlers.ListWebhookDeliveriesHandler(db))
 
@@ -242,4 +248,90 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	api.POST("/messages/buttons", handlers.SendButtonsHandler())
 
 	return r
+}
+
+// logEntry mirrors one whatsmeow event into the instance_logs table.
+// Best-effort: a logging failure is slog.Warn'd, never returned. The
+// `data` map captures the per-event payload (msg_id, from, chat, etc.)
+// so operators can query the table for the same facts the webhook
+// stream surfaces.
+func logEntry(store *instance.Store, instanceID string, evt interface{}) {
+	level := instance.LogLevelInfo
+	category := instance.LogCategorySystem
+	message := ""
+	var data map[string]any
+
+	switch e := evt.(type) {
+	case *events.Connected:
+		category = instance.LogCategoryConnect
+		message = "instance connected"
+	case *events.Disconnected:
+		category = instance.LogCategoryConnect
+		message = "instance disconnected"
+	case *events.LoggedOut:
+		level = instance.LogLevelWarn
+		category = instance.LogCategoryConnect
+		message = "instance logged out"
+		data = map[string]any{"reason": e.Reason.String()}
+	case *events.PairSuccess:
+		category = instance.LogCategoryConnect
+		message = "instance paired successfully"
+		data = map[string]any{
+			"phone": e.ID.User,
+			"jid":   e.ID.String(),
+			"lid":   e.LID.String(),
+		}
+	case *events.Message:
+		category = instance.LogCategoryMessage
+		message = "message received"
+		data = map[string]any{
+			"id":        e.Info.ID,
+			"from":      e.Info.Sender.String(),
+			"chat":      e.Info.Chat.String(),
+			"is_group":  e.Info.IsGroup,
+			"type":      e.Info.Type,
+			"timestamp": e.Info.Timestamp.UTC().Format(time.RFC3339),
+		}
+	case *events.Receipt:
+		category = instance.LogCategoryReceipt
+		message = "receipt: " + strings.ToLower(string(e.Type))
+		data = map[string]any{
+			"message_ids": receiptMessageIDs(e.MessageIDs),
+			"chat":        e.Chat.String(),
+			"sender":      e.Sender.String(),
+		}
+	case *events.GroupInfo:
+		category = instance.LogCategoryGroup
+		message = "group info changed"
+		data = map[string]any{
+			"jid":   e.JID.String(),
+			"name":  e.Name,
+		}
+	case *events.Contact:
+		category = instance.LogCategoryContact
+		message = "contact changed"
+		data = map[string]any{"jid": e.JID.String()}
+	case *events.Presence:
+		category = instance.LogCategoryPresence
+		message = "presence updated"
+		data = map[string]any{"from": e.From.String(), "available": !e.Unavailable}
+	default:
+		// Unknown event — record at debug level so we don't pollute the
+		// log table with noise. The webhook normalizer drops these too.
+		return
+	}
+
+	if err := store.InsertLog(context.Background(), instanceID, level, category, message, data); err != nil {
+		slog.Warn("instance log insert", "id", instanceID, "err", err)
+	}
+}
+
+// receiptMessageIDs converts a slice of typed MessageIDs to a slice of
+// plain strings for the JSON data column.
+func receiptMessageIDs(ids []types.MessageID) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = string(id)
+	}
+	return out
 }

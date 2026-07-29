@@ -259,6 +259,41 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /admin/api/instances/{id}/logs:
+    get:
+      tags: [instances]
+      summary: List instance log entries
+      description: |
+        Returns a paginated, filterable stream of instance_logs rows.
+        Every whatsmeow event is mirrored here by the event subscriber
+        in main.go, in parallel with the outbound webhook pipeline.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/InstanceId" }
+        - { in: query, name: level, schema: { type: string, enum: [info, warn, error, debug] } }
+        - { in: query, name: category, schema: { type: string, enum: [connect, message, receipt, group, contact, presence, system] } }
+        - { in: query, name: since, schema: { type: string, format: date-time }, description: "RFC3339 timestamp; only entries at or after this time" }
+        - { in: query, name: limit, schema: { type: integer, default: 50, maximum: 500 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instance_id: { type: string }
+                  limit: { type: integer }
+                  offset: { type: integer }
+                  entries:
+                    type: array
+                    items: { $ref: "#/components/schemas/LogEntry" }
+        "400":
+          description: Invalid since param
+        "404": { $ref: "#/components/responses/NotFound" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /admin/api/instances/{id}/webhook:
     put:
       tags: [webhook]
@@ -438,6 +473,20 @@ components:
     InstanceStatus:
       type: string
       enum: [created, pairing, connected, disconnected, logged_out, error]
+
+    LogEntry:
+      type: object
+      properties:
+        id: { type: string }
+        instance_id: { type: string, format: uuid }
+        timestamp: { type: string, format: date-time }
+        level: { type: string, enum: [info, warn, error, debug] }
+        category: { type: string, enum: [connect, message, receipt, group, contact, presence, system] }
+        message: { type: string }
+        data:
+          type: object
+          additionalProperties: true
+          description: Per-event payload (msg_id, from, chat, etc.)
 
     InstanceView:
       type: object
