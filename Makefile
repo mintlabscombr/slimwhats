@@ -1,4 +1,4 @@
-.PHONY: build run dev test lint clean docker docker-run
+.PHONY: build run dev stop test lint clean docker docker-run
 
 GO ?= go
 BIN := bin/whatsapp-api
@@ -9,6 +9,30 @@ build:
 
 run: build
 	./$(BIN)
+
+# Kill any running whatsapp-api (or the air wrapper that spawns it) so
+# you can reclaim the port without hunting PIDs. Use this when you see
+# "listen tcp :8080: bind: address already in use" or want to switch
+# between `make dev` and `./bin/whatsapp-api`.
+stop:
+	@PIDS=$$(pgrep -f 'bin/whatsapp-api' 2>/dev/null); \
+	if [ -n "$$PIDS" ]; then \
+		echo "Killing: $$PIDS"; \
+		kill $$PIDS 2>/dev/null || true; \
+		sleep 1; \
+		PIDS=$$(pgrep -f 'bin/whatsapp-api' 2>/dev/null); \
+		if [ -n "$$PIDS" ]; then \
+			echo "Force killing: $$PIDS"; \
+			kill -9 $$PIDS 2>/dev/null || true; \
+		fi; \
+	else \
+		echo "No whatsapp-api process running."; \
+	fi
+	@PIDS=$$(pgrep -f '$(AIR)' 2>/dev/null); \
+	if [ -n "$$PIDS" ]; then \
+		echo "Also killing air wrapper: $$PIDS"; \
+		kill $$PIDS 2>/dev/null || true; \
+	fi
 
 # Hot-reload dev mode. Requires `air` (go install github.com/air-verse/air@latest).
 # On any change to cmd/ internal/ migrations/, air rebuilds and restarts.
