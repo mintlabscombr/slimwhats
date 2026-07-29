@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -380,13 +382,43 @@ func AdminNewPage() gin.HandlerFunc {
 	}
 }
 
-// AdminNewSubmit handles POST /admin/instances/new (form action).
-// Stub kept for backward compat — the actual create goes through
-// the JSON API at /admin/api/instances.
-func AdminNewSubmit(store interface {
-	Create(in interface{ Name() string }) (id, name, apiKey, status string, err error)
-}) gin.HandlerFunc {
-	return func(c *gin.Context) { _ = store }
+// AdminNewSubmit handles POST /admin/instances/new (the form on the
+// "New instance" page). Creates the instance via the store, then
+// redirects to the detail page — the detail page renders the
+// show/hide API-key field, so the operator sees the new key right
+// there. On validation failure, redirects back to the form with
+// ?error=... so the page re-renders with a red banner above the
+// inputs (mirrors the form-dispatcher pattern from the lifecycle /
+// api-key / delete handlers).
+func AdminNewSubmit(store *instance.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		name := strings.TrimSpace(c.PostForm("name"))
+		apiKey := strings.TrimSpace(c.PostForm("api_key"))
+		if name == "" {
+			c.Redirect(http.StatusFound, "/admin/instances/new?error=Name+is+required.")
+			return
+		}
+		inst, plaintext, err := store.Create(instance.CreateInput{
+			Name:   name,
+			APIKey: apiKey,
+		})
+		if err != nil {
+			if errors.Is(err, instance.ErrNameTaken) {
+				c.Redirect(http.StatusFound, "/admin/instances/new?error=An+instance+with+this+name+already+exists.")
+				return
+			}
+			c.Redirect(http.StatusFound, "/admin/instances/new?error="+url.QueryEscape(err.Error()))
+			return
+		}
+		// Pass the freshly-generated key through the query string
+		// so the detail page can show it in a one-time "your new
+		// key" banner. The show/hide field on the detail page
+		// also reads from the DB so the operator can copy it from
+		// there too.
+		c.Redirect(http.StatusFound,
+			"/admin/instances/"+inst.ID+
+				"?msg=Instance+created.&msg_class=ok&new_api_key="+url.QueryEscape(plaintext))
+	}
 }
 
 // AdminDetailPage handles GET /admin/instances/{id}.

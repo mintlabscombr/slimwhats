@@ -293,6 +293,14 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminUI := r.Group("/admin", auth.SessionMiddleware(sessions))
 	adminUI.GET("/", handlers.AdminListPage(db))
 	adminUI.GET("/instances/new", handlers.AdminNewPage())
+	// Form submit for the new-instance page (was missing — the form
+	// posted to /admin/instances/new but only the GET handler was
+	// registered, so the POST fell through to a form-dispatcher and
+	// bounced back with "Unknown action:"). Mirrors the same
+	// pattern as the lifecycle / api-key / delete handlers:
+	// form posts → handler runs → 302 to the next page with
+	// msg + msg_class in the query string.
+	adminUI.POST("/instances/new", handlers.AdminNewSubmit(instanceStore))
 	adminUI.GET("/instances/:id", handlers.AdminDetailPage(db, mgr))
 	// Form-based dispatcher for the lifecycle buttons in the
 	// manager detail page (Connect/Disconnect/Reconnect). Reads
