@@ -23,7 +23,7 @@ func Open(ctx context.Context, driver, dsn string) (*sql.DB, error) {
 	if err := ensureDBDir(driver, dsn); err != nil {
 		return nil, fmt.Errorf("ensure db dir: %w", err)
 	}
-	db, err := sql.Open(sqlDriverName(driver), dsn)
+	db, err := sql.Open(SQLDriverName(driver), dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", driver, err)
 	}
@@ -32,6 +32,20 @@ func Open(ctx context.Context, driver, dsn string) (*sql.DB, error) {
 		return nil, fmt.Errorf("ping %s: %w", driver, err)
 	}
 	return db, nil
+}
+
+// SQLDriverName maps the operator-facing `APP_DB_DRIVER` value to the
+// database/sql driver name. We accept "sqlite3" as an alias for
+// modernc.org/sqlite (which registers as "sqlite").
+func SQLDriverName(driver string) string {
+	switch driver {
+	case "sqlite3", "sqlite":
+		return "sqlite"
+	case "postgres", "pgx":
+		return "postgres"
+	default:
+		return driver
+	}
 }
 
 // ensureDBDir creates the parent directory of the SQLite database file if
@@ -81,18 +95,9 @@ func Migrate(db *sql.DB, driver string) error {
 }
 
 // sqlDriverName maps the operator-facing `APP_DB_DRIVER` value to the
-// database/sql driver name. We accept "sqlite3" as an alias for
-// modernc.org/sqlite (which registers as "sqlite").
-func sqlDriverName(driver string) string {
-	switch driver {
-	case "sqlite3", "sqlite":
-		return "sqlite"
-	case "postgres", "pgx":
-		return "postgres"
-	default:
-		return driver
-	}
-}
+// database/sql driver name. Deprecated: use SQLDriverName (exported)
+// instead. Kept as a private alias for any internal callers.
+func sqlDriverName(driver string) string { return SQLDriverName(driver) }
 
 // gooseDialect maps to the goose dialect name ("sqlite3" / "postgres").
 func gooseDialect(driver string) string {

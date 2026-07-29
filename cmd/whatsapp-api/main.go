@@ -57,7 +57,26 @@ func main() {
 	}
 	slog.Info("database ready", "driver", cfg.DBDriver)
 
-	router := buildRouter(cfg, db)
+	// Build the instance manager: opens the whatsmeow sqlstore over the
+	// same DB, loads every row, and starts a Client per instance. Uses
+	// context.Background() (not bootCtx) because we cancel that as soon
+	// as Open returns.
+	mgr, err := instance.NewManager(db, store.SQLDriverName(cfg.DBDriver))
+	if err != nil {
+		slog.Error("init instance manager", "err", err)
+		os.Exit(1)
+	}
+	startCtx, cancelStart := context.WithTimeout(context.Background(), 30*time.Second)
+	if err := mgr.StartAll(startCtx); err != nil {
+		cancelStart()
+		slog.Error("start instances", "err", err)
+		os.Exit(1)
+	}
+	cancelStart()
+	slog.Info("instance manager ready", "count", len(mgr.All()))
+	defer mgr.StopAll()
+
+	router := buildRouter(cfg, db, mgr)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           router,
@@ -92,7 +111,7 @@ func main() {
 	slog.Info("shutdown complete")
 }
 
-func buildRouter(cfg *config.Config, db *sql.DB) *gin.Engine {
+func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.GET("/healthz", func(c *gin.Context) {
