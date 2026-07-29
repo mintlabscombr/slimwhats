@@ -110,6 +110,7 @@ func buildRouter(cfg *config.Config, db *sql.DB) *gin.Engine {
 	}
 	r.POST("/admin/login", handlers.LoginHandler(authDeps))
 	r.POST("/admin/logout", handlers.LogoutHandler(authDeps))
+	r.GET("/admin/login", handlers.LoginPageHandler(cfg.ManagerUsername))
 
 	return r
 }
