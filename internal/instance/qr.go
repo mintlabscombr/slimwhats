@@ -4,41 +4,104 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
-	"time"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 )
 
-// QRState holds the latest QR code event for an instance. The whatsmeow
-// QR channel is fire-and-forget per login attempt; we cache the latest
-// payload so a second call returns the cached value while a fresh one
-// is being generated.
+// QRState holds the latest QR code event for an instance. The
+// whatsmeow library emits the events.QR event (with Codes []string —
+// up to 6 codes) whenever the client generates a new QR batch.
+// The library rotates through those codes automatically (one every
+// 60s for the first code, 20s for the rest), and re-emits a new
+// events.QR every minute or so.
+//
+// We use this struct as a thread-safe buffer between the event
+// subscriber (which writes) and the HTTP handlers (which read).
+// This replaces the use of whatsmeow's GetQRChannel, which has a
+// side effect of calling cli.Disconnect() the moment the caller
+// stops reading from the channel — see the comment on
+// managedClient.qrState in manager.go for the full explanation.
 type QRState struct {
-	mu        sync.Mutex
-	latest    string // raw payload from the QR channel
-	expiresCh chan struct{}
+	mu     sync.Mutex
+	codes  []string // most recent batch of QR codes (first is the active one)
+	signal chan struct{}
 }
 
-// NewQRState returns a fresh QRState.
-func NewQRState() *QRState { return &QRState{} }
-
-// Set updates the latest QR payload. Empty string signals "expired".
-func (q *QRState) Set(payload string) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.latest = payload
+// NewQRState returns a fresh QRState. The signal channel is
+// buffered (capacity 1) so the writer can publish without
+// blocking, even if no one is currently reading.
+func NewQRState() *QRState {
+	return &QRState{signal: make(chan struct{}, 1)}
 }
 
-// Get returns the latest QR payload (empty if expired).
-func (q *QRState) Get() string {
+// Set replaces the cached codes. Called from the event subscriber
+// whenever a new events.QR arrives. Non-blocking — drops the signal
+// if it's already pending (the most recent codes are the only
+// ones that matter; intermediate batches that the HTTP handler
+// didn't get to will be replaced before they're read).
+func (q *QRState) Set(codes []string) {
+	q.mu.Lock()
+	q.codes = codes
+	q.mu.Unlock()
+	select {
+	case q.signal <- struct{}{}:
+	default:
+	}
+}
+
+// Get returns the most recent cached codes (empty slice if no
+// events.QR has been seen yet).
+func (q *QRState) Get() []string {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return q.latest
+	out := make([]string, len(q.codes))
+	copy(out, q.codes)
+	return out
+}
+
+// WaitForNew blocks until a new code batch arrives, the context
+// is cancelled, or the timeout fires. Returns the new codes
+// (or nil on timeout/cancel) and a bool indicating whether a new
+// batch actually arrived (false = timeout or cancel).
+func (q *QRState) WaitForNew(ctx context.Context, prevCodes []string) ([]string, bool) {
+	q.mu.Lock()
+	current := make([]string, len(q.codes))
+	copy(current, q.codes)
+	q.mu.Unlock()
+
+	// Fast path: codes already changed since the caller last saw
+	// them — no need to block.
+	if !sameCodeSet(current, prevCodes) {
+		return current, true
+	}
+
+	// Otherwise wait for the next signal.
+	select {
+	case <-q.signal:
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		out := make([]string, len(q.codes))
+		copy(out, q.codes)
+		return out, true
+	case <-ctx.Done():
+		return nil, false
+	}
+}
+
+func sameCodeSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // QRCode is the API response shape for GET /admin/api/instances/{id}/qr.
@@ -48,73 +111,25 @@ type QRCode struct {
 	IssuedAt string `json:"issued_at"`
 }
 
-// EnsureQRChannel starts (or re-starts) the whatsmeow QR pairing channel
-// for the given client and returns a channel of QR events. The caller
-// must drain the channel until either an "success" event arrives or
-// the context is cancelled.
-func EnsureQRChannel(ctx context.Context, client *whatsmeow.Client) (<-chan whatsmeow.QRChannelItem, error) {
-	if client == nil {
-		return nil, errors.New("client is nil")
-	}
-	if client.IsLoggedIn() {
-		return nil, ErrAlreadyPaired
-	}
-	if client.Store.ID == nil {
-		// NewDevice() — need to start with QR login
-	}
-	qrChan, err := client.GetQRChannel(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get qr channel: %w", err)
-	}
-	// Non-blocking connect in a goroutine
-	go func() {
-		if err := client.Connect(); err != nil {
-			// context-canceled is expected; other errors are surfaced
-			// by the event subscriber (which writes to instance_logs).
-			slog.Warn("client.Connect returned error", "err", err)
-		}
-	}()
-	return qrChan, nil
-}
-
-// ErrAlreadyPaired is returned by EnsureQRChannel when the client is
+// ErrAlreadyPaired is returned by GetLatestQR when the client is
 // already logged in.
 var ErrAlreadyPaired = errors.New("instance already paired")
 
-// GetLatestQR pulls one payload off the QR channel with a short timeout.
-// Returns the payload as a base64-encoded string (callers can render
-// it as a PNG).
+// GetLatestQR returns the most recent QR code payload from the
+// whatsmeow library's events.QR event (consumed by the event
+// subscriber and stored in qrState — see manager.go for why we
+// don't use GetQRChannel directly).
 //
-// IMPORTANT: whatsmeow's GetQRChannel must be called BEFORE the client
-// has ever been Connect()'d. If the client is already in a connected
-// state (e.g. the operator opened the detail page once, got a QR,
-// didn't scan it within 60s, and is now refreshing the page), the
-// channel call returns "GetQRChannel must be called before connecting"
-// and no QR is returned. The fix is to Disconnect first, then start a
-// fresh GetQRChannel → Connect cycle.
+// If no QR has been emitted yet, blocks up to ctx's deadline for
+// the first one. If the client is already connected, kicks a
+// fresh Connect() in a goroutine to refresh the QR batch.
 //
-// Only safe to call for unpaired clients — IsLoggedIn() must be false
-// (we don't want to disconnect a paired client just to fetch a QR).
-//
-// QR channel events (see whatsmeow.QRChannelItem):
-//   - "code": a new QR payload is ready; Code field is the raw string.
-//   - "success": the phone scanned the QR and pairing finished.
-//   - "error": WhatsApp's server rejected the pairing. The Error field
-//     contains the human-readable reason (e.g. "rate-limit"). We
-//     return this as a typed error so callers can surface it.
-func GetLatestQR(ctx context.Context, client *whatsmeow.Client) (string, error) {
+// Only safe to call for unpaired clients — IsLoggedIn() must be
+// false (we don't want to disconnect a paired client just to
+// fetch a QR).
+func GetLatestQR(ctx context.Context, state *QRState, client *whatsmeow.Client) (string, error) {
 	if client.IsLoggedIn() {
 		return "", ErrAlreadyPaired
-	}
-	// If the client is already connected, disconnect first so we can
-	// set up a fresh QR channel. This is a no-op for paired clients
-	// (we return early above) and only affects unpaired clients in
-	// the "connected, waiting for QR scan" state.
-	if client.IsConnected() {
-		client.Disconnect()
-		// Give whatsmeow a moment to release the socket before we
-		// re-init the QR channel.
-		time.Sleep(100 * time.Millisecond)
 	}
 	// Diagnostic: log what the whatsmeow library will use to
 	// determine the trailing PairClientType field in the QR
@@ -131,53 +146,45 @@ func GetLatestQR(ctx context.Context, client *whatsmeow.Client) (string, error) 
 		"global_PlatformType", store.DeviceProps.GetPlatformType().String(),
 		"global_Version_Primary", store.DeviceProps.GetVersion().GetPrimary(),
 		"global_Version_Secondary", store.DeviceProps.GetVersion().GetSecondary())
-	qrChan, err := client.GetQRChannel(ctx)
-	if err != nil {
-		return "", fmt.Errorf("get qr channel: %w", err)
-	}
-	go func() {
-		if err := client.Connect(); err != nil {
-			// context-canceled is expected; other errors are surfaced
-			// by the event subscriber (which writes to instance_logs).
-			slog.Warn("client.Connect returned error", "err", err)
-		}
-	}()
-	for {
-		select {
-		case item := <-qrChan:
-			switch item.Event {
-			case "code":
-				// Diagnostic: print the trailing field (PairClientType)
-				// so the operator can verify the QR is now ",1" (Chrome)
-				// and not ",9" (OtherWebClient). Format is
-				// "...,<PairClientType>" — the last comma-separated
-				// field in the URL fragment after the '#'.
-				if i := strings.LastIndex(item.Code, ","); i >= 0 {
-					slog.Info("GetLatestQR: emitted QR with client type",
-						"client_type", item.Code[i+1:],
-						"qr_prefix", item.Code[:min(80, len(item.Code))]+"...")
-				}
-				return item.Code, nil
-			case "success":
-				return "", ErrAlreadyPaired
-			case "error":
-				// WhatsApp's server rejected the pairing attempt.
-				// item.Error is the human-readable reason from the
-				// server (e.g. "rate-limit", "conflict",
-				// "not-found"). Wrap it so callers can slog it.
-				if item.Error != nil {
-					return "", fmt.Errorf("pairing rejected by server: %w", item.Error)
-				}
-				return "", errors.New("pairing rejected by server (no error message)")
-			default:
-				// Passkey flow (multi-device beta) or other events
-				// we don't render — keep draining the channel.
-				continue
+	// If the client isn't connected yet, kick the connect in a
+	// goroutine. (If it IS connected, the library is already
+	// rotating codes automatically and the qrState is being
+	// updated by the event subscriber.)
+	if !client.IsConnected() {
+		go func() {
+			if err := client.Connect(); err != nil {
+				slog.Warn("client.Connect returned error", "err", err)
 			}
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
+		}()
 	}
+	// Wait for the first QR event. The qrState was created at
+	// Manager.Start time, but the events.QR hasn't fired yet (the
+	// client has to connect and complete the noise handshake first).
+	codes, _ := state.WaitForNew(ctx, nil)
+	if len(codes) == 0 {
+		// Maybe the event was missed during the boot (race
+		// between the goroutine writing and this reader
+		// registering). One more check on the latest snapshot:
+		codes = state.Get()
+	}
+	if len(codes) == 0 {
+		// Still nothing — the QR hasn't been generated yet
+		// (client.Connect is still in flight) and the context
+		// timed out. Return ctx.Err so the HTTP handler surfaces
+		// it.
+		return "", ctx.Err()
+	}
+	// Diagnostic: print the trailing field (PairClientType) so
+	// the operator can verify the QR is ",1" (Chrome) and not
+	// ",9" (OtherWebClient). Format is
+	// "...,<PairClientType>" — the last comma-separated field in
+	// the URL fragment after the '#'.
+	if i := strings.LastIndex(codes[0], ","); i >= 0 {
+		slog.Info("GetLatestQR: emitted QR with client type",
+			"client_type", codes[0][i+1:],
+			"qr_prefix", codes[0][:min(80, len(codes[0]))]+"...")
+	}
+	return codes[0], nil
 }
 
 // SetWebhook persists the webhook URL and secret for an instance.
@@ -202,7 +209,7 @@ func (s *Store) SetWebhook(id, url, secret string) error {
 	_, err := s.DB.Exec(`
 		UPDATE instances
 		SET webhook_url = ?, webhook_secret = ?
-		WHERE id = ?`, url, secret, id)
+		WHERE id = ?`, id, url, secret)
 	return err
 }
 

@@ -176,6 +176,17 @@ func main() {
 		case *events.PairPasskeyError:
 			slog.Warn("pair passkey error", "id", instanceID, "err", e.Error)
 		}
+		// Push events.QR into the per-instance QRState buffer so
+		// HTTP handlers can serve the latest code without ever
+		// calling whatsmeow's GetQRChannel (which has a known
+		// side effect of Disconnect'ing the client the moment the
+		// consumer stops reading — see qr.go and manager.go for
+		// the full story).
+		if e, ok := evt.(*events.QR); ok {
+			if state := mgr.QRState(instanceID); state != nil {
+				state.Set(e.Codes)
+			}
+		}
 		// Mirror every event into instance_logs (US-029). Best-effort
 		// — a logging failure must not break the webhook pipeline.
 		logEntry(instanceStore, instanceID, evt)

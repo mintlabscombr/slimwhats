@@ -35,7 +35,8 @@ func InstanceQRHandler(mgr *instance.Manager) gin.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 65*time.Second)
 		defer cancel()
-		qr, err := instance.GetLatestQR(ctx, cli)
+		state := mgr.QRState(id)
+		qr, err := instance.GetLatestQR(ctx, state, cli)
 		if err != nil {
 			if errors.Is(err, instance.ErrAlreadyPaired) {
 				c.AbortWithStatusJSON(http.StatusConflict, gin.H{

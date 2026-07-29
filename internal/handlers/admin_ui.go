@@ -508,7 +508,8 @@ func fetchQRPNG(mgr *instance.Manager, instanceID string) template.URL {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	raw, err := instance.GetLatestQR(ctx, cli)
+	state := mgr.QRState(instanceID)
+	raw, err := instance.GetLatestQR(ctx, state, cli)
 	if err != nil || raw == "" {
 		slog.Warn("fetchQRPNG: get latest QR failed", "id", instanceID, "err", err)
 		return template.URL("")

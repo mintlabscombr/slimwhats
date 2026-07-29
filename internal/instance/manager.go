@@ -31,11 +31,24 @@ type Manager struct {
 // record. expectedDisconnect is set by the operator-driven Disconnect
 // path so that whatsmeow's auto-reconnect does not immediately bring
 // the client back up.
+//
+// qrState holds the most recent QR code payload emitted by the
+// library's events.QR handler. We use this (instead of
+// GetQRChannel) because GetQRChannel auto-disconnects the client the
+// moment the caller stops reading from the channel (see
+// qrchan.go in the whatsmeow module — the `default` branch in
+// emitQRs calls cli.Disconnect() if the channel is full). That's
+// exactly the wrong behaviour during the QR scan window: the
+// consumer reads one code, returns to the browser, and the socket
+// dies before the phone has a chance to scan. Reading from the
+// event handler's QRState keeps the connection alive for the
+// full 60s per code.
 type managedClient struct {
 	instance           *Instance
 	device             *store.Device
 	client             *whatsmeow.Client
 	expectedDisconnect bool
+	qrState            *QRState
 }
 
 // NewManager creates the whatsmeow Container over the given DB and
@@ -175,7 +188,7 @@ func (m *Manager) Start(ctx context.Context, instanceID string) error {
 			m.eventCallback(instanceID, evt)
 		})
 	}
-	mc := &managedClient{instance: inst, device: device, client: client}
+	mc := &managedClient{instance: inst, device: device, client: client, qrState: NewQRState()}
 	m.clients[instanceID] = mc
 	m.mu.Unlock()
 
@@ -343,6 +356,21 @@ func (m *Manager) StopAll() {
 		mc.client.Disconnect()
 		slog.Info("instance client disconnected", "id", id)
 	}
+}
+
+// QRState returns the QRState buffer for an instance. Returns
+// nil if the instance is unknown. The returned QRState is updated
+// by the global event subscriber whenever events.QR fires, so
+// callers can use it as a thread-safe source of the most recent
+// QR codes (and WaitForNew to block until the next batch).
+func (m *Manager) QRState(instanceID string) *QRState {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	mc, ok := m.clients[instanceID]
+	if !ok {
+		return nil
+	}
+	return mc.qrState
 }
 
 // All returns a snapshot of currently-managed instance IDs.
