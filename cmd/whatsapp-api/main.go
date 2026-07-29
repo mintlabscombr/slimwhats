@@ -154,6 +154,10 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	r.POST("/admin/login", handlers.LoginHandler(authDeps))
 	r.POST("/admin/logout", handlers.LogoutHandler(authDeps))
 	r.GET("/admin/login", handlers.LoginPageHandler(cfg.ManagerUsername))
+	r.GET("/admin/", handlers.AdminListPage(db))
+	r.GET("/admin/instances/new", handlers.AdminNewPage())
+	r.GET("/admin/instances/:id", handlers.AdminDetailPage(db))
+	r.GET("/admin/audit", handlers.AdminAuditPage(db))
 
 	instanceStore := instance.NewStore(db)
 	r.POST("/admin/api/instances", handlers.CreateInstanceHandler(instanceStore))

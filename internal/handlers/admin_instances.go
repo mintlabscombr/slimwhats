@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -70,20 +71,20 @@ func CreateInstanceHandler(store *instance.Store) gin.HandlerFunc {
 // deliberately omits the API key hash. Masked last-4 is shown instead
 // of the full key (US-031 reveal flow surfaces the full key when needed).
 type InstanceView struct {
-	ID             string          `json:"id"`
-	Name           string          `json:"name"`
-	Status         instance.Status `json:"status"`
-	Phone          string          `json:"phone,omitempty"`
-	JID            string          `json:"jid,omitempty"`
-	LID            string          `json:"lid,omitempty"`
-	WebhookURL     string          `json:"webhook_url,omitempty"`
-	WebhookConfigured bool         `json:"webhook_configured"`
-	APIKeyMasked   string          `json:"api_key_masked"`
-	APISetAt       string          `json:"api_key_set_at,omitempty"`
-	ConnectedAt    string          `json:"connected_at,omitempty"`
-	LastSeenAt     string          `json:"last_seen_at,omitempty"`
-	CreatedAt      string          `json:"created_at"`
-	UpdatedAt      string          `json:"updated_at"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Status           instance.Status `json:"status"`
+	Phone            string          `json:"phone,omitempty"`
+	JID              string          `json:"jid,omitempty"`
+	LID              string          `json:"lid,omitempty"`
+	WebhookURL       string          `json:"webhook_url,omitempty"`
+	WebhookConfigured bool           `json:"webhook_configured"`
+	APIKeyMasked     string          `json:"api_key_masked"`
+	APISetAt         string          `json:"api_key_set_at,omitempty"`
+	ConnectedAt      string          `json:"connected_at,omitempty"`
+	LastSeenAt       string          `json:"last_seen_at,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 }
 
 // ListInstancesHandler handles GET /admin/api/instances — paginated list.
@@ -165,8 +166,8 @@ func toView(inst *instance.Instance) InstanceView {
 	if inst.LastSeenAt.Valid {
 		v.LastSeenAt = inst.LastSeenAt.Time.UTC().Format("2006-01-02T15:04:05Z07:00")
 	}
-	v.CreatedAt = inst.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
-	v.UpdatedAt = inst.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+	v.CreatedAt = inst.CreatedAt
+	v.UpdatedAt = inst.UpdatedAt
 	return v
 }
 
