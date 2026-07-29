@@ -209,7 +209,7 @@ func (m *Manager) IsExpectedDisconnect(instanceID string) bool {
 // loadInstance fetches a single instance row by id.
 func (m *Manager) loadInstance(ctx context.Context, id string) (*Instance, error) {
 	row := m.DB.QueryRowContext(ctx, `
-		SELECT id, name, api_key_hash, webhook_url, status, phone, jid, lid,
+		SELECT id, name, api_key, webhook_url, status, phone, jid, lid,
 		       connected_at, last_seen_at, api_key_set_at, created_at, updated_at
 		FROM instances WHERE id = ?`, id)
 	return scanInstance(row)
@@ -243,13 +243,21 @@ func (m *Manager) Get(instanceID string) *whatsmeow.Client {
 
 // GetByAPIKey looks up an instance by its plaintext API key, returning
 // the instance and its whatsmeow client. Returns (nil, nil) on miss.
+// Post 2026-07-29 (drop-bcrypt), the stored value is plaintext and
+// the comparison is direct (with constant-time guard).
 func (m *Manager) GetByAPIKey(ctx context.Context, plaintext string) (*Instance, *whatsmeow.Client, error) {
 	insts, err := m.allInstances(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	for _, inst := range insts {
-		if VerifyAPIKey(inst.APIKeyHash, plaintext) {
+		if inst.APIKey == "" {
+			// No key set yet (just migrated; operator hasn't
+			// rotated). Skip so we don't accidentally match an
+			// empty submitted value.
+			continue
+		}
+		if CompareConstantTime(inst.APIKey, plaintext) {
 			return inst, m.Get(inst.ID), nil
 		}
 	}
@@ -268,7 +276,7 @@ func (m *Manager) LookupByID(ctx context.Context, id string) (*Instance, *whatsm
 
 func (m *Manager) allInstances(ctx context.Context) ([]*Instance, error) {
 	rows, err := m.DB.QueryContext(ctx, `
-		SELECT id, name, api_key_hash, webhook_url, status, phone, jid, lid,
+		SELECT id, name, api_key, webhook_url, status, phone, jid, lid,
 		       connected_at, last_seen_at, api_key_set_at, created_at, updated_at
 		FROM instances`)
 	if err != nil {

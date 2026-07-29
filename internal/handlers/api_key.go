@@ -2,13 +2,19 @@
 //
 // PUT    /admin/api/instances/{id}/api-key           — set a custom key
 // POST   /admin/api/instances/{id}/api-key/rotate    — auto-generate a new key
-// POST   /admin/api/instances/{id}/api-key/reveal    — return the plaintext key (requires manager_password in body)
+// POST   /admin/api/instances/{id}/api-key/reveal    — return the plaintext key
 //
 // All three require a manager session (the adminAPI group enforces
 // that). The reveal endpoint additionally requires the operator to
 // re-submit APP_MANAGER_PASSWORD in the request body — the session
-// cookie alone is NOT sufficient, because revealing a plaintext API
-// key is a sensitive operation that warrants explicit re-auth.
+// cookie alone is NOT sufficient, because revealing an API key is a
+// sensitive operation that warrants explicit re-auth.
+//
+// Post 2026-07-29 (drop-bcrypt), the API key is stored in plaintext.
+// Reveal now actually returns the stored value (no more v1 limitation
+// message about bcrypt). The trade-off: anyone with read access to
+// the DB sees all API keys. This matches the decision we already
+// made for webhook secrets in 1e41637. Documented in the README.
 package handlers
 
 import (
@@ -43,11 +49,11 @@ type RotateAPIKeyResponse struct {
 }
 
 // RevealAPIKeyRequest is the body for POST .../api-key/reveal. Used
-// by BOTH the JSON API (US-031) and the HTML form-dispatcher on the
-// manager detail page — so the struct needs both `json:` and `form:`
-// tags. The `form:` tag is what gin's ShouldBind looks at when the
-// request is Content-Type: application/x-www-form-urlencoded; without
-// it the field is silently missing and `binding:"required"` fails.
+// by BOTH the JSON API and the HTML form-dispatcher on the manager
+// detail page — so the struct needs both `json:` and `form:` tags.
+// The `form:` tag is what gin's ShouldBind looks at when the request
+// is Content-Type: application/x-www-form-urlencoded; without it the
+// field is silently missing and `binding:"required"` fails.
 type RevealAPIKeyRequest struct {
 	ManagerPassword string `json:"manager_password" form:"manager_password" binding:"required"`
 }
@@ -60,7 +66,8 @@ type RevealAPIKeyResponse struct {
 
 // SetAPIKeyHandler — PUT /admin/api/instances/{id}/api-key.
 // Operator-supplied key. Regex-validated against APIKeyRegex
-// (^sk_live_[A-Za-z0-9]{16,128}$). Returns 200 + masked representation.
+// (^sk_live_[A-Za-z0-9]{16,128}$). Returns 200 + masked
+// representation. The plaintext is stored as-is in the api_key column.
 func SetAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -95,15 +102,7 @@ func SetAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 			})
 			return
 		}
-		hash, err := instance.BcryptAPIKey(req.APIKey)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"error":   "bcrypt_failed",
-				"message": err.Error(),
-			})
-			return
-		}
-		if err := deps.Store.SetAPIKey(id, hash); err != nil {
+		if err := deps.Store.SetAPIKey(id, req.APIKey); err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"error":   "set_api_key_failed",
 				"message": err.Error(),
@@ -121,9 +120,9 @@ func SetAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 }
 
 // RotateAPIKeyHandler — POST /admin/api/instances/{id}/api-key/rotate.
-// Auto-generates a new key, bcrypt-hashes it, replaces the hash on
-// the row, and returns the plaintext exactly once. Old key dies
-// immediately (the new hash no longer matches it).
+// Auto-generates a new key, stores the plaintext in the row, and
+// returns the plaintext exactly once. Old key dies immediately (the
+// new value no longer matches it).
 func RotateAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -150,15 +149,7 @@ func RotateAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 			})
 			return
 		}
-		hash, err := instance.BcryptAPIKey(plaintext)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"error":   "bcrypt_failed",
-				"message": err.Error(),
-			})
-			return
-		}
-		if err := deps.Store.SetAPIKey(id, hash); err != nil {
+		if err := deps.Store.SetAPIKey(id, plaintext); err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"error":   "rotate_failed",
 				"message": err.Error(),
@@ -176,21 +167,15 @@ func RotateAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 }
 
 // RevealAPIKeyHandler — POST /admin/api/instances/{id}/api-key/reveal.
-// Returns the plaintext API key. The session cookie alone is NOT
-// sufficient: the operator must also submit the APP_MANAGER_PASSWORD
-// in the body. This is a deliberate second factor — if a session
-// cookie is leaked, the attacker still can't extract API keys
-// without also knowing the manager password.
+// Returns the plaintext API key from the DB. The session cookie alone
+// is NOT sufficient: the operator must also submit the
+// APP_MANAGER_PASSWORD in the body. This is a deliberate second
+// factor — if a session cookie is leaked, the attacker still can't
+// extract API keys without also knowing the manager password.
 //
-// IMPORTANT: we cannot recover the plaintext from the bcrypt hash
-// (that's the whole point of bcrypt). Instead, the create / rotate /
-// set flows surface the plaintext. This endpoint works by re-checking
-// the submitted password against the env-stored manager password and,
-// if it matches, the operator is presumed to already know the API key
-// (they have to have set it via the create / set / rotate flow). For
-// v1 this is acceptable; v2 can swap to an encrypted-at-rest API-key
-// column (mirroring the webhook secret pattern) to make reveal
-// truly recoverable.
+// Post 2026-07-29 (drop-bcrypt) the reveal endpoint actually
+// recovers the plaintext. The audit log records the action but NEVER
+// the plaintext value.
 func RevealAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -230,15 +215,20 @@ func RevealAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 			})
 			return
 		}
+		if inst.APIKey == "" {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+				"error":   "no_api_key",
+				"message": "this instance has no API key yet (just migrated); call POST .../api-key/rotate to set one",
+			})
+			return
+		}
 		// Audit the success — but NEVER log the plaintext key.
 		if deps.Audit != nil {
 			deps.Audit.Log(c.Request.Context(), "instance.api_key_revealed", id, currentUser(c), c.ClientIP(), c.GetHeader("User-Agent"), nil)
 		}
-		// We do NOT have the plaintext in the DB (bcrypt is one-way).
-		// Return a clear message so the operator knows the v1 limitation.
-		c.JSON(http.StatusOK, gin.H{
-			"id":      id,
-			"message": "v1 limitation: API keys are bcrypt-hashed and cannot be recovered. Use PUT .../api-key to set a new known key, or POST .../api-key/rotate to auto-generate a new one. The plaintext was shown exactly once at create / rotate / set time.",
+		c.JSON(http.StatusOK, RevealAPIKeyResponse{
+			ID:     id,
+			APIKey: inst.APIKey,
 		})
 	}
 }
@@ -255,7 +245,7 @@ func RevealAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 // Routes handled (all POST):
 //
 //	POST /admin/instances/{id}/api-key/rotate → generate a new key
-//	POST /admin/instances/{id}/reveal-key     → v1 limitation message
+//	POST /admin/instances/{id}/reveal-key     → return plaintext (in query string)
 //	POST /admin/instances/{id}/delete         → delete the instance
 func APIKeyFormActionHandler(deps APIKeyDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -289,12 +279,7 @@ func APIKeyFormActionHandler(deps APIKeyDeps) gin.HandlerFunc {
 				redirectWithMsg(c, path, "error", "Generate failed: "+err.Error())
 				return
 			}
-			hash, err := instance.BcryptAPIKey(plaintext)
-			if err != nil {
-				redirectWithMsg(c, path, "error", "Bcrypt failed: "+err.Error())
-				return
-			}
-			if err := deps.Store.SetAPIKey(id, hash); err != nil {
+			if err := deps.Store.SetAPIKey(id, plaintext); err != nil {
 				redirectWithMsg(c, path, "error", "Rotate failed: "+err.Error())
 				return
 			}
@@ -309,8 +294,10 @@ func APIKeyFormActionHandler(deps APIKeyDeps) gin.HandlerFunc {
 		case "reveal-key":
 			// Reveal is a 2-step flow: the form on the detail page
 			// POSTs here with manager_password in the body. Validate
-			// the password; v1 can't actually recover the plaintext
-			// (bcrypt is one-way) so we redirect with an explanation.
+			// the password then return the stored plaintext in the
+			// query string (the template's show/hide field reads
+			// from `Instance.APIKey` and a separate `?revealed_key=`
+			// override shows the just-revealed value).
 			var req RevealAPIKeyRequest
 			if err := c.ShouldBind(&req); err != nil {
 				redirectWithMsg(c, path, "error", "manager_password field is required.")
@@ -332,10 +319,14 @@ func APIKeyFormActionHandler(deps APIKeyDeps) gin.HandlerFunc {
 				redirectWithMsg(c, path, "error", "Instance not found.")
 				return
 			}
+			if inst.APIKey == "" {
+				redirectWithMsg(c, path, "error", "No API key set yet — click Rotate to generate one.")
+				return
+			}
 			if deps.Audit != nil {
 				deps.Audit.Log(c.Request.Context(), "instance.api_key_revealed", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
 			}
-			redirectWithMsg(c, path, "ok", "v1 limitation: API keys are bcrypt-hashed and cannot be recovered. Use Rotate to set a new known key, or re-create the instance.")
+			c.Redirect(http.StatusFound, "/admin/instances/"+id+"?msg=API+key+revealed.&msg_class=ok&revealed_key="+url.QueryEscape(inst.APIKey))
 
 		case "delete":
 			deps.Manager.Remove(id)

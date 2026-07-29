@@ -27,7 +27,7 @@ const (
 type Instance struct {
 	ID          string
 	Name        string
-	APIKeyHash  string
+	APIKey      string // plaintext (post 2026-07-29 drop-bcrypt). May be empty if not yet rotated.
 	WebhookURL  sql.NullString
 	Status      Status
 	Phone       sql.NullString
@@ -66,13 +66,13 @@ func NewStore(db *sql.DB) *Store {
 // CreateInput is the validated input for creating an instance.
 type CreateInput struct {
 	Name   string
-	APIKey string // plaintext; will be bcrypt-hashed before storage
+	APIKey string // plaintext; stored as-is in the api_key column
 }
 
-// Create persists a new instance in the `created` status, with the
-// API key bcrypt-hashed. If APIKey is empty, one is auto-generated.
-// Returns the new instance (without the plaintext API key) and the
-// plaintext API key (caller must surface it to the operator once).
+// Create persists a new instance in the `created` status with the API
+// key stored in plaintext (no bcrypt). If APIKey is empty, one is
+// auto-generated. Returns the new instance and the plaintext API key
+// (caller must surface it to the operator once).
 func (s *Store) Create(in CreateInput) (*Instance, string, error) {
 	if in.Name == "" {
 		return nil, "", errors.New("name is required")
@@ -90,10 +90,6 @@ func (s *Store) Create(in CreateInput) (*Instance, string, error) {
 	} else if !APIKeyRegex.MatchString(plaintext) {
 		return nil, "", errors.New("api_key must match ^sk_live_[A-Za-z0-9]{16,128}$")
 	}
-	hash, err := bcryptAPIKey(plaintext)
-	if err != nil {
-		return nil, "", fmt.Errorf("bcrypt api key: %w", err)
-	}
 
 	id, err := newID()
 	if err != nil {
@@ -102,9 +98,9 @@ func (s *Store) Create(in CreateInput) (*Instance, string, error) {
 	now := time.Now().UTC()
 	_, err = s.DB.Exec(`
 		INSERT INTO instances
-			(id, name, api_key_hash, status, api_key_set_at, created_at, updated_at)
+			(id, name, api_key, status, api_key_set_at, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, in.Name, hash, string(StatusCreated), now, now, now,
+		id, in.Name, plaintext, string(StatusCreated), now, now, now,
 	)
 	if err != nil {
 		// Best-effort uniqueness detection: SQLite uses "UNIQUE constraint failed"
@@ -115,20 +111,20 @@ func (s *Store) Create(in CreateInput) (*Instance, string, error) {
 		return nil, "", fmt.Errorf("insert instance: %w", err)
 	}
 	return &Instance{
-		ID:         id,
-		Name:       in.Name,
-		APIKeyHash: hash,
-		Status:     StatusCreated,
-		APISetAt:   sql.NullTime{Time: now, Valid: true},
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:        id,
+		Name:      in.Name,
+		APIKey:    plaintext,
+		Status:    StatusCreated,
+		APISetAt:  sql.NullTime{Time: now, Valid: true},
+		CreatedAt: now,
+		UpdatedAt: now,
 	}, plaintext, nil
 }
 
 // GetByID returns the instance with the given id, or nil if not found.
 func (s *Store) GetByID(id string) (*Instance, error) {
 	row := s.DB.QueryRow(`
-		SELECT id, name, api_key_hash, webhook_url, status, phone, jid, lid,
+		SELECT id, name, api_key, webhook_url, status, phone, jid, lid,
 		       connected_at, last_seen_at, api_key_set_at, created_at, updated_at
 		FROM instances WHERE id = ?`, id)
 	return scanInstance(row)
@@ -137,7 +133,7 @@ func (s *Store) GetByID(id string) (*Instance, error) {
 // GetByName returns the instance with the given name, or nil if not found.
 func (s *Store) GetByName(name string) (*Instance, error) {
 	row := s.DB.QueryRow(`
-		SELECT id, name, api_key_hash, webhook_url, status, phone, jid, lid,
+		SELECT id, name, api_key, webhook_url, status, phone, jid, lid,
 		       connected_at, last_seen_at, api_key_set_at, created_at, updated_at
 		FROM instances WHERE name = ?`, name)
 	return scanInstance(row)
@@ -147,7 +143,7 @@ func (s *Store) GetByName(name string) (*Instance, error) {
 // created_at DESC.
 func (s *Store) ListAll(limit, offset int) ([]*Instance, error) {
 	rows, err := s.DB.Query(`
-		SELECT id, name, api_key_hash, webhook_url, status, phone, jid, lid,
+		SELECT id, name, api_key, webhook_url, status, phone, jid, lid,
 		       connected_at, last_seen_at, api_key_set_at, created_at, updated_at
 		FROM instances ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
@@ -180,14 +176,18 @@ func scanInstance(row rowScanner) (*Instance, error) {
 func scanInstanceRows(row rowScanner) (*Instance, error) {
 	var inst Instance
 	var status string
+	var apiKey sql.NullString
 	err := row.Scan(
-		&inst.ID, &inst.Name, &inst.APIKeyHash, &inst.WebhookURL,
+		&inst.ID, &inst.Name, &apiKey, &inst.WebhookURL,
 		&status, &inst.Phone, &inst.JID, &inst.LID,
 		&inst.ConnectedAt, &inst.LastSeenAt, &inst.APISetAt,
 		&inst.CreatedAt, &inst.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if apiKey.Valid {
+		inst.APIKey = apiKey.String
 	}
 	inst.Status = Status(status)
 	return &inst, nil
@@ -208,12 +208,13 @@ func generateAPIKey() (string, error) {
 // the API-key rotate handler.
 func GenerateAPIKey() (string, error) { return generateAPIKey() }
 
-// SetAPIKey replaces the api_key_hash for an instance and bumps
-// api_key_set_at + updated_at. Used by the rotate and set-custom flows.
-func (s *Store) SetAPIKey(id, newHash string) error {
+// SetAPIKey replaces the api_key (plaintext, post 2026-07-29 drop-
+// bcrypt) for an instance and bumps api_key_set_at + updated_at.
+// Used by the rotate and set-custom flows.
+func (s *Store) SetAPIKey(id, newPlaintext string) error {
 	now := time.Now().UTC()
-	_, err := s.DB.Exec(`UPDATE instances SET api_key_hash = ?, api_key_set_at = ?, updated_at = ? WHERE id = ?`,
-		newHash, now, now, id)
+	_, err := s.DB.Exec(`UPDATE instances SET api_key = ?, api_key_set_at = ?, updated_at = ? WHERE id = ?`,
+		newPlaintext, now, now, id)
 	return err
 }
 

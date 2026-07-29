@@ -1,31 +1,21 @@
 package instance
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
-// BcryptAPIKey returns the bcrypt hash of a plaintext API key. Cost
-// 12 — same as the PRD spec. Exported for the API-key rotate flow
-// (handlers/api_key.go) and for tests.
-func BcryptAPIKey(plaintext string) (string, error) {
-	h, err := bcrypt.GenerateFromPassword([]byte(plaintext), 12)
-	if err != nil {
-		return "", err
-	}
-	return string(h), nil
+// CompareConstantTime returns true iff a == b. Uses
+// crypto/subtle.ConstantTimeCompare so a timing-attack can't reveal
+// the key prefix.
+//
+// Post 2026-07-29 (drop-bcrypt), this is the comparison used for
+// bearer auth on /api/v1/*. The bcrypt helpers (BcryptAPIKey,
+// VerifyAPIKey) are removed — the API key is stored as plaintext and
+// authenticated by direct comparison against the submitted value.
+func CompareConstantTime(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
-
-// VerifyAPIKey returns nil if plaintext matches the stored bcrypt hash.
-// Uses constant-time comparison internally (bcrypt package handles it).
-func VerifyAPIKey(hash, plaintext string) bool {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plaintext)) == nil
-}
-
-// bcryptAPIKey is the unexported alias kept for internal callers that
-// don't need the export.
-func bcryptAPIKey(plaintext string) (string, error) { return BcryptAPIKey(plaintext) }
 
 // base64URLNoPad returns the base64url-encoded representation of b
 // without padding. Used internally for API-key generation.

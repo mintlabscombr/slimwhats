@@ -67,9 +67,13 @@ func CreateInstanceHandler(store *instance.Store) gin.HandlerFunc {
 	}
 }
 
-// InstanceView is the read-side representation of an instance. It
-// deliberately omits the API key hash. Masked last-4 is shown instead
-// of the full key (US-031 reveal flow surfaces the full key when needed).
+// InstanceView is the read-side representation of an instance.
+//
+// Post 2026-07-29 (drop-bcrypt), the API key is stored in plaintext.
+// The full key is surfaced in the `APIKey` field for the manager UI's
+// show/hide widget; the JSON API still returns only `APIKeyMasked`
+// (last-4) to keep the on-the-wire payload small. The detail page
+// uses `APIKey` directly.
 type InstanceView struct {
 	ID                string          `json:"id"`
 	Name              string          `json:"name"`
@@ -80,6 +84,7 @@ type InstanceView struct {
 	WebhookURL        string          `json:"webhook_url,omitempty"`
 	WebhookConfigured bool            `json:"webhook_configured"`
 	APIKeyMasked      string          `json:"api_key_masked"`
+	APIKey            string          `json:"-"` // plaintext; HTML only
 	APISetAt          string          `json:"api_key_set_at,omitempty"`
 	ConnectedAt       string          `json:"connected_at,omitempty"`
 	LastSeenAt        string          `json:"last_seen_at,omitempty"`
@@ -142,7 +147,8 @@ func toView(inst *instance.Instance) InstanceView {
 		ID:           inst.ID,
 		Name:         inst.Name,
 		Status:       inst.Status,
-		APIKeyMasked: maskAPIKey(inst.APIKeyHash),
+		APIKeyMasked: maskAPIKey(inst.APIKey),
+		APIKey:       inst.APIKey,
 	}
 	if inst.Phone.Valid {
 		v.Phone = inst.Phone.String
@@ -171,16 +177,16 @@ func toView(inst *instance.Instance) InstanceView {
 	return v
 }
 
-// maskAPIKey returns a placeholder masked representation. The hash is
-// bcrypt and we never have the plaintext after creation (except via
-// US-031 reveal). For display we show the prefix and last 4 chars of
-// the hash to keep the API surface stable.
-func maskAPIKey(hash string) string {
-	if len(hash) < 4 {
-		return "sk_live_••••"
+// maskAPIKey returns a placeholder masked representation of the API
+// key. Post 2026-07-29 (drop-bcrypt) we DO have the plaintext, but
+// the JSON API surface still returns the masked form to keep payloads
+// small and to make it harder to accidentally log the key.
+func maskAPIKey(plaintext string) string {
+	if plaintext == "" {
+		return ""
 	}
-	// We don't have the plaintext, so we show a fixed-shape placeholder
-	// with the last 4 chars of the bcrypt hash. Operators use US-031 to
-	// reveal the full plaintext.
-	return "sk_live_••••••••" + hash[len(hash)-4:]
+	if len(plaintext) < 4 {
+		return plaintext
+	}
+	return "sk_live_••••••••" + plaintext[len(plaintext)-4:]
 }

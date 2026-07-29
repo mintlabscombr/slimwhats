@@ -377,10 +377,16 @@ paths:
       tags: [instances]
       summary: Reveal the plaintext API key
       description: |
-        Requires `manager_password` in the body — the session cookie
-        alone is NOT sufficient. **v1 limitation**: API keys are
-        bcrypt-hashed and cannot be recovered. The response explains
-        the recovery paths (set / rotate).
+        Returns the stored API key in plaintext. Requires
+        `manager_password` in the body — the session cookie alone is NOT
+        sufficient. This is a deliberate second factor: if a session
+        cookie is leaked, the attacker still can't extract API keys
+        without also knowing the manager password.
+
+        The API key is stored as plaintext in the DB (post 2026-07-29
+        drop-bcrypt, matching the webhook secret pattern). Anyone with
+        read access to the DB can see all API keys; protect the DB file
+        accordingly.
       security: [{ sessionCookie: [] }]
       parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
       requestBody:
@@ -394,7 +400,15 @@ paths:
                 manager_password: { type: string }
       responses:
         "200":
-          description: v1 limitation message
+          description: Plaintext API key
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, api_key]
+                properties:
+                  id: { type: string, format: uuid }
+                  api_key: { type: string, description: "The plaintext API key" }
         "401":
           description: manager_password mismatch
         "404": { $ref: "#/components/responses/NotFound" }
@@ -578,7 +592,7 @@ components:
         lid: { type: string }
         webhook_url: { type: string }
         webhook_configured: { type: boolean }
-        api_key_masked: { type: string, description: "Masked representation (last 4 of bcrypt hash)" }
+        api_key_masked: { type: string, description: "Masked representation (sk_live_••••••••XXXX, last 4 of the plaintext key)" }
         api_key_set_at: { type: string, format: date-time }
         connected_at: { type: string, format: date-time }
         last_seen_at: { type: string, format: date-time }

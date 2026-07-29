@@ -193,7 +193,6 @@ var adminDetailTmpl = template.Must(
     <tr><th>Phone</th><td>{{.Instance.Phone}}</td></tr>
     <tr><th>JID</th><td>{{.Instance.JID}}</td></tr>
     <tr><th>LID</th><td>{{.Instance.LID}}</td></tr>
-    <tr><th>API key (masked)</th><td><code>{{.Instance.APIKeyMasked}}</code></td></tr>
     <tr><th>API key set at</th><td>{{.Instance.APISetAt}}</td></tr>
     <tr><th>Webhook</th><td>{{if .Instance.WebhookConfigured}}{{.Instance.WebhookURL}}{{else}}<span class="muted">not configured</span>{{end}}</td></tr>
     <tr><th>Connected at</th><td>{{.Instance.ConnectedAt}}</td></tr>
@@ -231,13 +230,21 @@ var adminDetailTmpl = template.Must(
 
 <div class="card">
   <h2>API key</h2>
-  <p class="muted">Masked: <code>{{.Instance.APIKeyMasked}}</code></p>
-  <form method="POST" action="/admin/instances/{{.Instance.ID}}/reveal-key" style="display:flex;gap:.5rem;align-items:flex-end;flex-wrap:wrap">
+  {{if .Instance.APIKey}}
+  <div style="display:flex;gap:.5rem;align-items:center">
+    <input id="apikey" type="password" value="{{.Instance.APIKey}}" readonly style="flex:1;font-family:ui-monospace,Menlo,monospace;font-size:.85rem" onclick="this.select()">
+    <button class="btn secondary" type="button" onclick="var i=document.getElementById('apikey');var b=document.getElementById('apikey-btn');if(i.type==='password'){i.type='text';b.textContent='Hide'}else{i.type='password';b.textContent='Show'}" id="apikey-btn">Show</button>
+  </div>
+  <p class="muted" style="margin-top:.5rem">Click the field to select all, or click <b>Show</b> to read it directly. Use <b>Rotate</b> below to generate a new key (the old one dies immediately).</p>
+  {{else}}
+  <p class="muted">No API key set yet. Click <b>Rotate</b> below to generate one.</p>
+  {{end}}
+  <form method="POST" action="/admin/instances/{{.Instance.ID}}/reveal-key" style="margin-top:1rem;display:flex;gap:.5rem;align-items:flex-end;flex-wrap:wrap">
     <div style="flex:1;min-width:200px">
-      <label for="mgr_pw">Manager password (to reveal)</label>
+      <label for="mgr_pw">Manager password (to re-fetch from DB)</label>
       <input id="mgr_pw" name="manager_password" type="password">
     </div>
-    <button class="btn" type="submit">Reveal</button>
+    <button class="btn" type="submit">Re-fetch from DB</button>
   </form>
   {{if .RevealedKey}}
   <div class="ok" style="margin-top:1rem;word-break:break-all"><code>{{.RevealedKey}}</code></div>
@@ -524,12 +531,13 @@ func AdminAuditPage(db *sql.DB) gin.HandlerFunc {
 func getInstanceView(db *sql.DB, id string) (*InstanceView, error) {
 	row := db.QueryRow(`
 		SELECT id, name, status, phone, jid, lid, webhook_url, status,
-		       connected_at, last_seen_at, api_key_set_at, created_at, updated_at
+		       connected_at, last_seen_at, api_key, api_key_set_at, created_at, updated_at
 		FROM instances WHERE id = ?`, id)
 	var v InstanceView
 	var phone, jid, lid, wh sql.NullString
 	var ca, ls, as sql.NullTime
-	if err := row.Scan(&v.ID, &v.Name, &v.Status, &phone, &jid, &lid, &wh, &v.Status, &ca, &ls, &as, &v.CreatedAt, &v.UpdatedAt); err != nil {
+	var apiKey sql.NullString
+	if err := row.Scan(&v.ID, &v.Name, &v.Status, &phone, &jid, &lid, &wh, &v.Status, &ca, &ls, &apiKey, &as, &v.CreatedAt, &v.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -557,5 +565,22 @@ func getInstanceView(db *sql.DB, id string) (*InstanceView, error) {
 	if as.Valid {
 		v.APISetAt = as.Time.UTC().Format("2006-01-02 15:04:05.999999-07:00")
 	}
+	// API key is stored in plaintext (post 2026-07-29 drop-bcrypt).
+	// Surface the full value to the detail page so the show/hide field
+	// can render it; the field starts masked (type="password") and the
+	// user toggles visibility client-side.
+	if apiKey.Valid && apiKey.String != "" {
+		v.APIKeyMasked = "••••••••" + last4(apiKey.String)
+		v.APIKey = apiKey.String
+	}
 	return &v, nil
+}
+
+// last4 returns the last 4 characters of s, or s itself if shorter.
+// Used for the "sk_live_••••••••abcd" mask display.
+func last4(s string) string {
+	if len(s) <= 4 {
+		return s
+	}
+	return s[len(s)-4:]
 }
