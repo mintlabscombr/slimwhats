@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx registers as "postgres"
@@ -24,6 +26,7 @@ import (
 	"github.com/mauroneto/whatsmeow-api/internal/handlers"
 	"github.com/mauroneto/whatsmeow-api/internal/instance"
 	"github.com/mauroneto/whatsmeow-api/internal/store"
+	"github.com/mauroneto/whatsmeow-api/internal/webhook"
 )
 
 func main() {
@@ -76,7 +79,26 @@ func main() {
 	slog.Info("instance manager ready", "count", len(mgr.All()))
 	defer mgr.StopAll()
 
-	router := buildRouter(cfg, db, mgr)
+	// Webhook dispatcher: per-instance encrypted secret delivery with
+	// exponential-backoff retry.
+	dispatcher := webhook.NewDispatcher(db, instance.NewStore(db), cfg.EncryptionKey, webhook.DefaultConfig())
+	dispatcher.Start()
+	defer dispatcher.Shutdown(context.Background())
+	mgr.SubscribeEvents(func(instanceID string, evt interface{}) {
+		ev, ok := webhook.Normalize(instanceID, evt)
+		if !ok {
+			return
+		}
+		payload, _ := json.Marshal(ev)
+		deliveryID, err := dispatcher.RecordDelivery(instanceID, ev.Event, payload)
+		if err != nil {
+			slog.Warn("record delivery", "id", instanceID, "err", err)
+			return
+		}
+		dispatcher.Enqueue(instanceID, ev.Event, deliveryID, ev)
+	})
+
+	router := buildRouter(cfg, db, mgr, dispatcher)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           router,
@@ -111,7 +133,7 @@ func main() {
 	slog.Info("shutdown complete")
 }
 
-func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager) *gin.Engine {
+func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatcher *webhook.Dispatcher) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.GET("/healthz", func(c *gin.Context) {
@@ -139,6 +161,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager) *gin.Eng
 	r.GET("/admin/api/instances/:id/qr", handlers.InstanceQRHandler(mgr))
 	r.GET("/admin/api/instances/:id/status", handlers.InstanceStatusHandler(mgr))
 	r.PUT("/admin/api/instances/:id/webhook", handlers.SetWebhookHandler(instanceStore, cfg.EncryptionKey))
+	r.GET("/admin/api/instances/:id/webhook-deliveries", handlers.ListWebhookDeliveriesHandler(db))
 
 	// Per-instance API-key routes (Bearer auth)
 	api := r.Group("/api/v1", handlers.InstanceAPIKeyAuth(mgr))

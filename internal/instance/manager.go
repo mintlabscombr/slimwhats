@@ -23,6 +23,7 @@ type Manager struct {
 
 	mu      sync.RWMutex
 	clients map[string]*managedClient
+	eventCallback EventCallback
 }
 
 // managedClient bundles the whatsmeow client with its on-disk device
@@ -227,4 +228,31 @@ func (m *Manager) All() []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+// EventCallback is the function shape for subscribers to whatsmeow
+// events per-instance. The instanceID is passed so the callback can
+// route the event to the right per-instance webhook.
+type EventCallback func(instanceID string, evt interface{})
+
+// SubscribeEvents registers a single global event callback. The
+// callback is invoked from each whatsmeow client's event goroutine
+// whenever ANY event is fired. (The first registration wins; later
+// calls overwrite.)
+func (m *Manager) SubscribeEvents(cb EventCallback) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.eventCallback = cb
+	for id, mc := range m.clients {
+		// Capture per-iteration
+		instanceID := id
+		mc.client.AddEventHandler(func(evt interface{}) {
+			m.mu.RLock()
+			cb := m.eventCallback
+			m.mu.RUnlock()
+			if cb != nil {
+				cb(instanceID, evt)
+			}
+		})
+	}
 }
