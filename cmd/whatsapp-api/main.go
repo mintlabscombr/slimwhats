@@ -20,9 +20,13 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx registers as "postgres"
 	"github.com/joho/godotenv"
+	"go.mau.fi/whatsmeow"
+	waCompanionReg "go.mau.fi/whatsmeow/binary/proto"
+	waStore "go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	"google.golang.org/protobuf/proto"
 	_ "modernc.org/sqlite" // modernc.org/sqlite registers as "sqlite"
 
 	"github.com/mauroneto/whatsmeow-api/internal/auth"
@@ -100,6 +104,19 @@ func main() {
 		slog.Error("init instance manager", "err", err)
 		os.Exit(1)
 	}
+	// Make sure whatsmeow reports a CURRENT client version to the
+	// server. The default (Version_Primary=0, "0.1.0") is what the
+	// library ships with and is what the server saw in our debug
+	// logs ("global_Version_Primary":0). If WhatsApp's pairing
+	// server checks the version (it does — older clients may not
+	// have the protocol features newer builds need), reporting 0.1.0
+	// is probably what's making the phone's local cache reject us
+	// as "suspicious ancient client" before it even forwards the
+	// request. Try to fetch a real one from web.whatsapp.com/sw.js;
+	// fall back to a hardcoded recent-ish version if the network
+	// call fails (the other implementation does the fetch pattern;
+	// we add the fallback so the service still boots offline).
+	setClientVersion(logger)
 	startCtx, cancelStart := context.WithTimeout(context.Background(), 30*time.Second)
 	if err := mgr.StartAll(startCtx); err != nil {
 		cancelStart()
@@ -545,4 +562,72 @@ func (w waLogAdapter) Errorf(msg string, args ...any) {
 }
 func (w waLogAdapter) Sub(module string) waLog.Logger {
 	return waLogAdapter{logger: w.logger, module: w.module + "." + module}
+}
+
+// setClientVersion makes sure whatsmeow reports a CURRENT client
+// version to the server during pairing. The library default is
+// Version_Primary=0 ("0.1.0") — that's what our debug logs were
+// showing and is almost certainly part of why the phone's local
+// cache rejects our pairing as "suspicious ancient client" before
+// it even forwards the request to WhatsApp's servers.
+//
+// We try the live version fetch first (matches the evolution-go
+// reference implementation) and fall back to a hardcoded recent-ish
+// value if the network call fails. The hardcoded value is in the
+// 2.3000.x range from mid-2026 — recent enough to look like a
+// real client to the phone's local cache, old enough to be safe
+// even if the actual current version has changed.
+// setClientVersion makes sure whatsmeow reports a CURRENT client
+// version to the server during pairing. The library default is
+// Version_Primary=0 ("0.1.0") — that's what our debug logs were
+// showing and is almost certainly part of why the phone's local
+// cache rejects our pairing as "suspicious ancient client" before
+// it even forwards the request to WhatsApp's servers.
+//
+// We try the live version fetch first (matches the evolution-go
+// reference implementation) and fall back to a hardcoded recent-ish
+// value if the network call fails. The hardcoded value is in the
+// 2.3000.x range from mid-2026 — recent enough to look like a
+// real client to the phone's local cache, old enough to be safe
+// even if the actual current version has changed.
+//
+// IMPORTANT: there are TWO version globals in the whatsmeow store.
+// `store.SetWAVersion(v)` updates the version used for the
+// ClientPayload (sent on every message). `store.DeviceProps.Version`
+// is the version baked into the pairing DeviceProps. Both need to
+// be updated or the QR still reports "0.1.0" in the device props
+// the server sees during handshake. We update both.
+func setClientVersion(logger *slog.Logger) {
+	// Hardcoded fallback. Matches the era of mid-2026 WhatsApp Web
+	// releases. Update this periodically (every few months) or
+	// better yet, let the live fetch win.
+	const fallbackVersion = "2.3000.101880"
+	var version waStore.WAVersionContainer
+	if parsed, err := waStore.ParseVersion(fallbackVersion); err == nil {
+		version = parsed
+		logger.Info("whatsmeow client version set (hardcoded fallback)", "version", parsed.String())
+	} else {
+		logger.Warn("hardcoded fallback version unparseable; using library default", "err", err)
+	}
+	// Try the live fetch and override if it succeeds. 5s timeout so
+	// a flaky network can't block boot.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	if latest, err := whatsmeow.GetLatestVersion(ctx, httpClient); err == nil {
+		version = *latest
+		logger.Info("whatsmeow client version set (live fetch)", "version", latest.String())
+	} else {
+		logger.Warn("could not fetch live client version from web.whatsapp.com; using fallback",
+			"err", err, "fallback", fallbackVersion)
+	}
+	// Apply to BOTH globals: the ClientPayload one (SetWAVersion) and
+	// the DeviceProps one (the protobuf struct that gets sent in
+	// the pairing handshake).
+	waStore.SetWAVersion(version)
+	waStore.DeviceProps.Version = &waCompanionReg.DeviceProps_AppVersion{
+		Primary:   proto.Uint32(version[0]),
+		Secondary: proto.Uint32(version[1]),
+		Tertiary:  proto.Uint32(version[2]),
+	}
 }
