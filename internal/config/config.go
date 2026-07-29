@@ -5,6 +5,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -12,8 +13,13 @@ import (
 
 // Config holds the runtime configuration for whatsmeow-api. Non-secret
 // defaults can be set in `config.yaml`; the required secret material
-// (`APP_MANAGER_PASSWORD`, `APP_ENCRYPTION_KEY`) is read from env only and
-// never persisted.
+// (`APP_MANAGER_PASSWORD`) is read from env only and never persisted.
+//
+// `APP_ENCRYPTION_KEY` was an earlier v1 requirement (AES-256-GCM at-rest
+// encryption of webhook secrets) and is now ignored. Webhook secrets are
+// stored as plaintext. If `APP_ENCRYPTION_KEY` is set, we still parse +
+// validate it for backward compatibility but it's not used anywhere —
+// the field is here as a no-op so old `.env` files don't fail to load.
 type Config struct {
 	HTTPAddr        string
 	DBDriver        string
@@ -23,7 +29,10 @@ type Config struct {
 
 	// Required, env-only.
 	ManagerPassword string
-	EncryptionKey   []byte
+
+	// Legacy: accepted but no longer used. Kept so old .env files
+	// don't error out. The hotfix is recorded in PROGRESS.md.
+	EncryptionKey []byte
 }
 
 // yamlConfig is the subset of Config that can be loaded from `config.yaml`.
@@ -69,21 +78,24 @@ func Load() (*Config, error) {
 	}
 	c.ManagerPassword = pw
 
-	// Required: encryption key for webhook secret at-rest encryption.
-	// Must be 32 raw bytes, base64-encoded (a 44-char string from
-	// `openssl rand -base64 32`).
+	// Legacy: APP_ENCRYPTION_KEY is no longer required. If set, we
+	// validate it for backward compatibility but otherwise ignore it.
+	// Webhook secrets are stored as plaintext in the DB (hotfix —
+	// see PROGRESS.md). A one-time warning is logged when the key is
+	// missing (helps catch .env files that haven't been updated).
 	keyB64 := os.Getenv("APP_ENCRYPTION_KEY")
 	if keyB64 == "" {
-		return nil, fmt.Errorf("APP_ENCRYPTION_KEY is required (generate with: openssl rand -base64 32)")
+		slog.Warn("APP_ENCRYPTION_KEY is not set; webhook secrets are stored as plaintext in the DB")
+	} else {
+		key, err := base64.StdEncoding.DecodeString(keyB64)
+		if err != nil {
+			return nil, fmt.Errorf("APP_ENCRYPTION_KEY is not valid base64: %w", err)
+		}
+		if len(key) != 32 {
+			return nil, fmt.Errorf("APP_ENCRYPTION_KEY must decode to 32 bytes (got %d)", len(key))
+		}
+		c.EncryptionKey = key
 	}
-	key, err := base64.StdEncoding.DecodeString(keyB64)
-	if err != nil {
-		return nil, fmt.Errorf("APP_ENCRYPTION_KEY is not valid base64: %w", err)
-	}
-	if len(key) != 32 {
-		return nil, fmt.Errorf("APP_ENCRYPTION_KEY must decode to 32 bytes (got %d); generate with: openssl rand -base64 32", len(key))
-	}
-	c.EncryptionKey = key
 
 	return c, nil
 }

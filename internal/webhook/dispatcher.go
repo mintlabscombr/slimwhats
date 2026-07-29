@@ -56,7 +56,6 @@ type Dispatcher struct {
 	cfg    Config
 	db     *sql.DB
 	store  *instance.Store
-	key    []byte
 	client *http.Client
 	ch     chan job
 	wg     sync.WaitGroup
@@ -74,7 +73,7 @@ type job struct {
 
 // NewDispatcher creates a dispatcher. Call Start to launch the worker
 // pool, Shutdown to drain and stop.
-func NewDispatcher(db *sql.DB, store *instance.Store, key []byte, cfg Config) *Dispatcher {
+func NewDispatcher(db *sql.DB, store *instance.Store, cfg Config) *Dispatcher {
 	if cfg.WorkerCount <= 0 {
 		cfg.WorkerCount = 8
 	}
@@ -97,7 +96,6 @@ func NewDispatcher(db *sql.DB, store *instance.Store, key []byte, cfg Config) *D
 		cfg:    cfg,
 		db:     db,
 		store:  store,
-		key:    key,
 		client: &http.Client{Timeout: cfg.HTTPTimeout},
 		ch:     make(chan job, cfg.QueueSize),
 		sem:    make(map[string]chan struct{}),
@@ -115,7 +113,7 @@ func (d *Dispatcher) Start() {
 // Enqueue queues a job for delivery. Non-blocking: if the queue is
 // full, the job is dropped and logged (PRD: in-process overflow strategy).
 func (d *Dispatcher) Enqueue(instanceID, eventName, deliveryID string, ev Event) bool {
-	url, secret, err := d.store.LoadWebhookSecret(instanceID, d.key)
+	url, secret, err := d.store.LoadWebhookSecret(instanceID)
 	if err != nil {
 		slog.Warn("load webhook secret failed", "id", instanceID, "err", err)
 		return false

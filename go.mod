@@ -7,6 +7,7 @@ toolchain go1.26.5
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/jackc/pgx/v5 v5.7.1
+	github.com/joho/godotenv v1.5.1
 	github.com/pressly/goose/v3 v3.22.1
 	go.mau.fi/whatsmeow v0.0.0-20260722203353-e9a033b24933
 	golang.org/x/crypto v0.54.0

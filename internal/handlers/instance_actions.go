@@ -102,7 +102,7 @@ type SetWebhookRequest struct {
 
 // SetWebhookHandler handles PUT /admin/api/instances/{id}/webhook. Empty
 // url+secret clears the config.
-func SetWebhookHandler(store *instance.Store, encryptionKey []byte) gin.HandlerFunc {
+func SetWebhookHandler(store *instance.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		var req SetWebhookRequest
@@ -115,7 +115,7 @@ func SetWebhookHandler(store *instance.Store, encryptionKey []byte) gin.HandlerF
 		}
 		if req.URL == "" && req.Secret == "" {
 			// Clear
-			if err := store.SetWebhook(id, "", "", encryptionKey); err != nil {
+			if err := store.SetWebhook(id, "", ""); err != nil {
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 					"error":   "set_webhook_failed",
 					"message": err.Error(),
@@ -141,7 +141,7 @@ func SetWebhookHandler(store *instance.Store, encryptionKey []byte) gin.HandlerF
 			})
 			return
 		}
-		if err := store.SetWebhook(id, req.URL, req.Secret, encryptionKey); err != nil {
+		if err := store.SetWebhook(id, req.URL, req.Secret); err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"error":   "set_webhook_failed",
 				"message": err.Error(),

@@ -19,6 +19,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx registers as "postgres"
+	"github.com/joho/godotenv"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	_ "modernc.org/sqlite" // modernc.org/sqlite registers as "sqlite"
@@ -32,6 +33,17 @@ import (
 )
 
 func main() {
+	// Auto-load .env from the current working directory (if present).
+	// godotenv does NOT override already-set env vars, so an operator
+	// who exports APP_MANAGER_PASSWORD inline still wins over the file.
+	// A missing .env is fine — we just skip and rely on the real env.
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+		// A parse error (malformed file) is worth flagging — silently
+		// ignoring it would lead to confusing "missing env var" errors
+		// downstream. Not-exist is the normal "no .env" case.
+		fmt.Fprintf(os.Stderr, "warning: failed to load .env: %v\n", err)
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
@@ -79,9 +91,12 @@ func main() {
 	cancelStart()
 	slog.Info("instance manager ready", "count", len(mgr.All()))
 
-	// Webhook dispatcher: per-instance encrypted secret delivery with
-	// exponential-backoff retry.
-	dispatcher := webhook.NewDispatcher(db, instance.NewStore(db), cfg.EncryptionKey, webhook.DefaultConfig())
+	// Webhook dispatcher: per-instance secret delivery with
+	// exponential-backoff retry. Webhook secrets are stored as
+	// plaintext in the DB (post hotfix) — the dispatcher reads them
+	// straight from the column and puts them in the X-Webhook-Secret
+	// header on every outbound POST.
+	dispatcher := webhook.NewDispatcher(db, instance.NewStore(db), webhook.DefaultConfig())
 	dispatcher.Start()
 	instanceStore := instance.NewStore(db)
 	mgr.SubscribeEvents(func(instanceID string, evt interface{}) {
@@ -221,7 +236,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminAPI.GET("/instances/:id/qr", handlers.InstanceQRHandler(mgr))
 	adminAPI.GET("/instances/:id/status", handlers.InstanceStatusHandler(mgr))
 	adminAPI.GET("/instances/:id/logs", handlers.ListInstanceLogsHandler(instanceStore))
-	adminAPI.PUT("/instances/:id/webhook", handlers.SetWebhookHandler(instanceStore, cfg.EncryptionKey))
+	adminAPI.PUT("/instances/:id/webhook", handlers.SetWebhookHandler(instanceStore))
 	adminAPI.GET("/instances/:id/webhook-deliveries", handlers.ListWebhookDeliveriesHandler(db))
 
 	// Lifecycle endpoints (US-025..US-028)

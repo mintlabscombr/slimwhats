@@ -14,10 +14,6 @@ See [`../specs/prd-whatsapp-rest-api.md`](../specs/prd-whatsapp-rest-api.md) for
 # Required: manager panel password (any non-empty string)
 export APP_MANAGER_PASSWORD="your-secure-password"
 
-# Required: encryption key for webhook secrets (32 raw bytes, base64-encoded)
-# Generate with:
-export APP_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-
 # Optional: HTTP listen address (default ":8080")
 export APP_HTTP_ADDR=":8080"
 
@@ -29,6 +25,8 @@ export APP_MANAGER_USERNAME="admin"
 # export APP_DB_DRIVER="postgres"
 # export APP_DB_DSN="postgres://user:pass@host:5432/whatsmeow-api?sslmode=disable"
 ```
+
+> **Note:** `APP_ENCRYPTION_KEY` is no longer required (v1 simplification — webhook secrets are stored as plaintext in the DB; see `PROGRESS.md`). If your `.env` still has the line, it's ignored. The service logs a one-time warning if the key is missing.
 
 ### 2. Build and run
 
@@ -92,7 +90,7 @@ Resulting image size: ~20 MB (target was < 30 MB).
 ### Run with docker compose (recommended)
 
 ```bash
-cp .env.example .env       # then edit to set APP_MANAGER_PASSWORD and APP_ENCRYPTION_KEY
+cp .env.example .env       # then edit to set APP_MANAGER_PASSWORD
 docker compose up -d
 docker compose logs -f
 ```
@@ -111,7 +109,6 @@ APP_DB_DSN=postgres://whatsmeow:whatsmeow@postgres:5432/whatsmeow?sslmode=disabl
 ```bash
 docker run --rm -p 8080:8080 \
     -e APP_MANAGER_PASSWORD=your-password \
-    -e APP_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
     -v whatsmeow-data:/data \
     whatsmeow-api
 ```

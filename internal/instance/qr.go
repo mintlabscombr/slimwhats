@@ -2,14 +2,9 @@ package instance
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"sync"
 
 	"go.mau.fi/whatsmeow"
@@ -108,81 +103,36 @@ func GetLatestQR(ctx context.Context, client *whatsmeow.Client) (string, error) 
 	}
 }
 
-// EncryptSecret AES-256-GCM-encrypts the webhook secret for at-rest
-// storage. Returns base64(nonce || ciphertext).
-func EncryptSecret(key []byte, plaintext string) (string, error) {
-	if len(key) != 32 {
-		return "", fmt.Errorf("key must be 32 bytes, got %d", len(key))
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", err
-	}
-	ct := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
-	return base64.StdEncoding.EncodeToString(ct), nil
-}
-
-// DecryptSecret reverses EncryptSecret.
-func DecryptSecret(key []byte, ciphertextB64 string) (string, error) {
-	if len(key) != 32 {
-		return "", fmt.Errorf("key must be 32 bytes, got %d", len(key))
-	}
-	raw, err := base64.StdEncoding.DecodeString(ciphertextB64)
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	if len(raw) < gcm.NonceSize() {
-		return "", errors.New("ciphertext too short")
-	}
-	nonce, ct := raw[:gcm.NonceSize()], raw[gcm.NonceSize():]
-	pt, err := gcm.Open(nil, nonce, ct, nil)
-	if err != nil {
-		return "", err
-	}
-	return string(pt), nil
-}
-
-// SetWebhook persists the webhook URL and encrypted secret for an instance.
+// SetWebhook persists the webhook URL and secret for an instance.
 // Pass empty url/secret to clear.
-func (s *Store) SetWebhook(id, url, secret string, encryptionKey []byte) error {
+//
+// v1 simplification: the secret is stored as plaintext in the DB. This
+// is a deliberate trade-off — the AES-256-GCM layer was overkill for
+// the use case. The on-disk threat model now assumes the DB file is
+// protected at the operator's discretion (filesystem permissions,
+// disk encryption, etc.). If you need at-rest encryption in the
+// future, wrap this function in a call to the encryption helper of
+// your choice.
+func (s *Store) SetWebhook(id, url, secret string) error {
 	if url == "" {
 		// Clear
-		_, err := s.DB.Exec(`UPDATE instances SET webhook_url = NULL, webhook_secret_encrypted = NULL WHERE id = ?`, id)
+		_, err := s.DB.Exec(`UPDATE instances SET webhook_url = NULL, webhook_secret = NULL WHERE id = ?`, id)
 		return err
 	}
 	if secret == "" {
 		return errors.New("secret is required when url is set")
 	}
-	encrypted, err := EncryptSecret(encryptionKey, secret)
-	if err != nil {
-		return err
-	}
-	_, err = s.DB.Exec(`
+	_, err := s.DB.Exec(`
 		UPDATE instances
-		SET webhook_url = ?, webhook_secret_encrypted = ?
-		WHERE id = ?`, url, encrypted, id)
+		SET webhook_url = ?, webhook_secret = ?
+		WHERE id = ?`, url, secret, id)
 	return err
 }
 
-// LoadWebhookSecret returns the decrypted webhook secret for an instance.
-func (s *Store) LoadWebhookSecret(id string, encryptionKey []byte) (url, secret string, err error) {
-	row := s.DB.QueryRow(`SELECT webhook_url, webhook_secret_encrypted FROM instances WHERE id = ?`, id)
+// LoadWebhookSecret returns the webhook URL and secret for an instance.
+// Returns ("", "", nil) when no webhook is configured.
+func (s *Store) LoadWebhookSecret(id string) (url, secret string, err error) {
+	row := s.DB.QueryRow(`SELECT webhook_url, webhook_secret FROM instances WHERE id = ?`, id)
 	var urlVal, secretVal sql.NullString
 	if err := row.Scan(&urlVal, &secretVal); err != nil {
 		return "", "", err
@@ -193,9 +143,5 @@ func (s *Store) LoadWebhookSecret(id string, encryptionKey []byte) (url, secret 
 	if !secretVal.Valid {
 		return urlVal.String, "", nil
 	}
-	plaintext, err := DecryptSecret(encryptionKey, secretVal.String)
-	if err != nil {
-		return "", "", err
-	}
-	return urlVal.String, plaintext, nil
+	return urlVal.String, secretVal.String, nil
 }
