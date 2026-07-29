@@ -48,6 +48,10 @@ var APIKeyRegex = regexp.MustCompile(`^sk_live_[A-Za-z0-9]{16,128}$`)
 // name already exists.
 var ErrNameTaken = errors.New("instance name already taken")
 
+// ErrNotLoaded is returned by Manager.Disconnect when the instance
+// is not in the in-memory map (i.e. hasn't been started).
+var ErrNotLoaded = errors.New("instance not loaded")
+
 // Store is the DB layer for instances. Whatsmeow client lifecycle is
 // managed separately by the Manager.
 type Store struct {
@@ -198,6 +202,38 @@ func generateAPIKey() (string, error) {
 		return "", err
 	}
 	return "sk_live_" + base64URLNoPad(buf), nil
+}
+
+// SetAPIKey replaces the api_key_hash for an instance and bumps
+// api_key_set_at + updated_at. Used by the rotate and set-custom flows.
+func (s *Store) SetAPIKey(id, newHash string) error {
+	now := time.Now().UTC()
+	_, err := s.DB.Exec(`UPDATE instances SET api_key_hash = ?, api_key_set_at = ?, updated_at = ? WHERE id = ?`,
+		newHash, now, now, id)
+	return err
+}
+
+// SetStatus updates the instance's lifecycle status (and
+// connected_at / last_seen_at where relevant). Used by the event
+// subscriber in main.go.
+func (s *Store) SetStatus(id string, status Status, connectedAt *time.Time, lastSeenAt *time.Time) error {
+	now := time.Now().UTC()
+	_, err := s.DB.Exec(`
+		UPDATE instances
+		SET status = ?, connected_at = COALESCE(?, connected_at), last_seen_at = COALESCE(?, last_seen_at), updated_at = ?
+		WHERE id = ?`,
+		string(status), connectedAt, lastSeenAt, now, id)
+	return err
+}
+
+// Delete removes an instance row (and by CASCADE, its webhook config
+// columns, deliveries, and instance_logs). The whatsmeow device row
+// in the same DB is preserved so re-creation with the same name does
+// not require re-pairing. If you really want to nuke the device, do
+// it via the whatsmeow Container API separately.
+func (s *Store) Delete(id string) error {
+	_, err := s.DB.Exec(`DELETE FROM instances WHERE id = ?`, id)
+	return err
 }
 
 // newID returns a fresh UUIDv4.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
@@ -27,11 +28,14 @@ type Manager struct {
 }
 
 // managedClient bundles the whatsmeow client with its on-disk device
-// record.
+// record. expectedDisconnect is set by the operator-driven Disconnect
+// path so that whatsmeow's auto-reconnect does not immediately bring
+// the client back up.
 type managedClient struct {
-	instance *Instance
-	device   *store.Device
-	client   *whatsmeow.Client
+	instance            *Instance
+	device              *store.Device
+	client              *whatsmeow.Client
+	expectedDisconnect  bool
 }
 
 // NewManager creates the whatsmeow Container over the given DB and
@@ -89,6 +93,23 @@ func (m *Manager) Start(ctx context.Context, instanceID string) error {
 		return fmt.Errorf("instance not found: %s", instanceID)
 	}
 
+	// If the client is already managed, reset the expected-disconnect
+	// flag and kick Connect() in a goroutine. Re-entrant Start() is
+	// the way Reconnect works.
+	m.mu.Lock()
+	if existing, ok := m.clients[instanceID]; ok {
+		existing.expectedDisconnect = false
+		cli := existing.client
+		m.mu.Unlock()
+		go func() {
+			if err := cli.Connect(); err != nil {
+				slog.Warn("client connect failed", "id", instanceID, "err", err)
+			}
+		}()
+		return nil
+	}
+	m.mu.Unlock()
+
 	// Get the JID we should use for the device. If the instance is
 	// already paired, the JID is stored; if not, we mint a fresh
 	// device with an empty JID (whatsmeow will fill it in on first pair).
@@ -127,6 +148,62 @@ func (m *Manager) Start(ctx context.Context, instanceID string) error {
 		}()
 	}
 	return nil
+}
+
+// Disconnect marks the client as expected-to-disconnect (so whatsmeow's
+// auto-reconnect does not immediately re-bring it up) and calls
+// client.Disconnect(). Returns ErrNotLoaded if the client is not in
+// the in-memory map.
+func (m *Manager) Disconnect(instanceID string) error {
+	m.mu.Lock()
+	mc, ok := m.clients[instanceID]
+	m.mu.Unlock()
+	if !ok {
+		return ErrNotLoaded
+	}
+	mc.expectedDisconnect = true
+	mc.client.Disconnect()
+	return nil
+}
+
+// Reconnect is Disconnect + Start. Used for the "kick" lifecycle
+// action when the operator wants to force a fresh session.
+func (m *Manager) Reconnect(ctx context.Context, instanceID string) error {
+	// If the client is loaded, disconnect first; otherwise Start will
+	// lazy-load and (if paired) auto-connect anyway.
+	_ = m.Disconnect(instanceID)
+	// brief pause so whatsmeow settles before we reconnect
+	time.Sleep(200 * time.Millisecond)
+	return m.Start(ctx, instanceID)
+}
+
+// Remove disconnects the client (if loaded) and evicts it from the
+// in-memory map. The DB row is NOT deleted here — that's the
+// Store.Delete call the handler makes afterward.
+func (m *Manager) Remove(instanceID string) {
+	m.mu.Lock()
+	mc, ok := m.clients[instanceID]
+	if ok {
+		mc.expectedDisconnect = true
+		delete(m.clients, instanceID)
+	}
+	m.mu.Unlock()
+	if ok {
+		mc.client.Disconnect()
+	}
+}
+
+// IsExpectedDisconnect returns true if the most recent Disconnect
+// for this instance was operator-driven (vs. a network blip). Used
+// by the event subscriber in main.go to decide whether to flip the
+// status to "disconnected" or leave it for auto-reconnect to clear.
+func (m *Manager) IsExpectedDisconnect(instanceID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if mc, ok := m.clients[instanceID]; ok {
+		return mc.expectedDisconnect
+	}
+	return false
 }
 
 // loadInstance fetches a single instance row by id.

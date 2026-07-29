@@ -1,24 +1,505 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>whatsmeow-api — API docs</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
-</head>
-<body>
-<div id="swagger-ui"></div>
-<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-<script>
-window.onload = () => {
-  SwaggerUIBundle({
-    url: "/swagger/openapi.yaml",
-    dom_id: "#swagger-ui",
-    presets: [SwaggerUIBundle.presets.apis],
-    layout: "BaseLayout",
-    deepLinking: true,
-  });
-};
-</script>
-</body>
-</html>
+openapi: 3.1.0
+info:
+  title: whatsmeow-api
+  version: 0.1.0
+  description: |
+    REST API on top of go.mau.fi/whatsmeow. Multi-instance WhatsApp
+    number management with a web manager UI and a per-instance API
+    for sending text + interactive buttons.
+
+    Two auth surfaces:
+    - **Manager** (env-stored password → session cookie) — `/admin/*` and `/admin/api/*`
+    - **Per-instance** (`Authorization: Bearer sk_live_...`) — `/api/v1/*`
+
+servers:
+  - url: http://localhost:8080
+    description: Local dev
+
+tags:
+  - name: manager
+    description: Manager login + UI session
+  - name: instances
+    description: Instance CRUD (manager-only)
+  - name: instance-lifecycle
+    description: Connect / disconnect / reconnect / delete (manager-only)
+  - name: webhook
+    description: Webhook config + delivery log (manager-only)
+  - name: messaging
+    description: Send messages (per-instance API key)
+  - name: health
+    description: Liveness / readiness
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { status: { type: string, example: ok } }
+
+  /admin/login:
+    get:
+      tags: [manager]
+      summary: Login page (HTML)
+      security: []
+      responses: { "200": { description: Login form } }
+    post:
+      tags: [manager]
+      summary: Submit login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties: { password: { type: string } }
+      responses:
+        "200":
+          description: Authenticated; `__Host-session` or `session` cookie set
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429":
+          description: Rate-limited (5 failures / 10 min / IP)
+          headers:
+            Retry-After: { schema: { type: integer } }
+
+  /admin/logout:
+    post:
+      tags: [manager]
+      summary: Invalidate the current session
+      security: [{ sessionCookie: [] }]
+      responses: { "200": { description: Logged out } }
+
+  /admin/api/instances:
+    get:
+      tags: [instances]
+      summary: List instances
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 50, maximum: 500 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instances: { type: array, items: { $ref: "#/components/schemas/InstanceView" } }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [instances]
+      summary: Create an instance
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 64 }
+                api_key:
+                  type: string
+                  pattern: "^sk_live_[A-Za-z0-9]{16,128}$"
+                  description: Optional. Auto-generated (43 base64url chars) if omitted.
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  name: { type: string }
+                  api_key: { type: string, description: "Plaintext API key — SHOWN ONCE" }
+                  status: { $ref: "#/components/schemas/InstanceStatus" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: Name already taken
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /admin/api/instances/{id}:
+    get:
+      tags: [instances]
+      summary: Get one instance
+      security: [{ sessionCookie: [] }]
+      parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstanceView" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      tags: [instance-lifecycle]
+      summary: Delete an instance (manager-only)
+      description: |
+        Evicts the instance from the in-memory manager, removes its DB row.
+        CASCADE cleans up its webhook_deliveries and instance_logs. The
+        whatsmeow device record in the same DB is intentionally preserved
+        so re-creation with the same name does not require re-pairing.
+      security: [{ sessionCookie: [] }]
+      parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  status: { type: string, example: deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /admin/api/instances/{id}/connect:
+    post:
+      tags: [instance-lifecycle]
+      summary: Connect a paired instance
+      security: [{ sessionCookie: [] }]
+      parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
+      responses:
+        "202":
+          description: Connecting
+        "200":
+          description: Already connected (no-op)
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Not paired — call GET /qr first
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /admin/api/instances/{id}/disconnect:
+    post:
+      tags: [instance-lifecycle]
+      summary: Disconnect an instance
+      description: |
+        Sets the expected-disconnect flag so whatsmeow's auto-reconnect
+        does not immediately re-bring the client up.
+      security: [{ sessionCookie: [] }]
+      parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
+      responses:
+        "200":
+          description: Disconnected
+        "404": { $ref: "#/components/responses/NotFound" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /admin/api/instances/{id}/reconnect:
+    post:
+      tags: [instance-lifecycle]
+      summary: Reconnect an instance (disconnect + start)
+      security: [{ sessionCookie: [] }]
+      parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
+      responses:
+        "202":
+          description: Reconnecting
+        "404": { $ref: "#/components/responses/NotFound" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /admin/api/instances/{id}/qr:
+    get:
+      tags: [instances]
+      summary: Get the current QR code for an unpaired instance
+      security: [{ sessionCookie: [] }]
+      parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  qr: { type: string, description: "Raw QR code string" }
+                  format: { type: string, example: raw }
+                  issued_at: { type: string, format: date-time }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Already paired
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /admin/api/instances/{id}/status:
+    get:
+      tags: [instances]
+      summary: Get instance status
+      security: [{ sessionCookie: [] }]
+      parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  name: { type: string }
+                  status: { $ref: "#/components/schemas/InstanceStatus" }
+                  connected: { type: boolean }
+                  logged_in: { type: boolean }
+                  phone: { type: string }
+                  jid: { type: string }
+                  lid: { type: string }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /admin/api/instances/{id}/webhook:
+    put:
+      tags: [webhook]
+      summary: Set or clear the webhook URL + secret for an instance
+      description: |
+        Empty body clears the webhook. The secret is encrypted at rest
+        with AES-256-GCM (key = APP_ENCRYPTION_KEY) and surfaced as
+        `X-Webhook-Secret` on every outbound POST.
+      security: [{ sessionCookie: [] }]
+      parameters: [ { $ref: "#/components/parameters/InstanceId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string, description: "https://... or http://localhost*" }
+                secret: { type: string, minLength: 16, maxLength: 128 }
+      responses:
+        "200":
+          description: Configured or cleared
+        "400":
+          description: Invalid URL or secret length
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /admin/api/instances/{id}/webhook-deliveries:
+    get:
+      tags: [webhook]
+      summary: List recent webhook deliveries for an instance
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/InstanceId" }
+        - { in: query, name: status, schema: { type: string, enum: [pending, succeeded, failed, dead] } }
+        - { in: query, name: limit, schema: { type: integer, default: 50, maximum: 500 } }
+      responses:
+        "200":
+          description: OK
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/ping:
+    get:
+      tags: [messaging]
+      summary: Sanity check (per-instance API key)
+      security: [{ apiKey: [] }]
+      responses: { "200": { description: OK } }
+
+  /api/v1/messages/text:
+    post:
+      tags: [messaging]
+      summary: Send a text message
+      security: [{ apiKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to, body]
+              properties:
+                to: { type: string, description: "Phone or JID (e.g. 5511999999999 or 5511999999999@s.whatsapp.net)" }
+                body: { type: string }
+                id: { type: string, description: "Optional message ID; auto-generated if omitted" }
+                delay: { type: integer, minimum: 0, maximum: 30000, description: "Typing simulation delay in ms" }
+                mentions: { type: array, items: { type: string } }
+                mention_all: { type: boolean }
+                quoted:
+                  type: object
+                  properties:
+                    message_id: { type: string }
+                    participant: { type: string }
+                forwarding_score: { type: integer }
+                format_jid: { type: boolean }
+      responses:
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  timestamp: { type: integer }
+                  server_id: { type: string }
+                  chat: { type: string }
+                  is_group: { type: boolean }
+                  type: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429":
+          description: Rate limited (20/60s/JID)
+          headers:
+            Retry-After: { schema: { type: integer } }
+
+  /api/v1/messages/buttons:
+    post:
+      tags: [messaging]
+      summary: Send interactive buttons (reply / url / copy / call / pix)
+      security: [{ apiKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to, body, buttons]
+              properties:
+                to: { type: string }
+                body: { type: string }
+                header: { type: string }
+                footer: { type: string }
+                id: { type: string }
+                delay: { type: integer }
+                buttons:
+                  type: array
+                  minItems: 1
+                  maxItems: 3
+                  items:
+                    oneOf:
+                      - $ref: "#/components/schemas/ReplyButton"
+                      - $ref: "#/components/schemas/UrlButton"
+                      - $ref: "#/components/schemas/CopyButton"
+                      - $ref: "#/components/schemas/CallButton"
+                      - $ref: "#/components/schemas/PixButton"
+                  discriminator:
+                    propertyName: type
+                    mapping:
+                      reply: "#/components/schemas/ReplyButton"
+                      url:   "#/components/schemas/UrlButton"
+                      copy:  "#/components/schemas/CopyButton"
+                      call:  "#/components/schemas/CallButton"
+                      pix:   "#/components/schemas/PixButton"
+      responses:
+        "200": { description: Sent }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429":
+          description: Rate limited
+          headers: { Retry-After: { schema: { type: integer } } }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+    apiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: "whatsmeow-api-key (sk_live_...)"
+
+  parameters:
+    InstanceId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Unauthorized:
+      description: Unauthorized
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: Not found
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
+
+    InstanceStatus:
+      type: string
+      enum: [created, pairing, connected, disconnected, logged_out, error]
+
+    InstanceView:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { $ref: "#/components/schemas/InstanceStatus" }
+        phone: { type: string }
+        jid: { type: string }
+        lid: { type: string }
+        webhook_url: { type: string }
+        webhook_configured: { type: boolean }
+        api_key_masked: { type: string, description: "Masked representation (last 4 of bcrypt hash)" }
+        api_key_set_at: { type: string, format: date-time }
+        connected_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    # ---- Button shapes (1-of discriminated union on `type`) ----
+    ReplyButton:
+      type: object
+      required: [type, text, id]
+      properties:
+        type: { type: string, enum: [reply] }
+        text: { type: string, description: "Button label" }
+        id: { type: string, description: "Reply id echoed back when the user taps" }
+
+    UrlButton:
+      type: object
+      required: [type, text, url]
+      properties:
+        type: { type: string, enum: [url] }
+        text: { type: string }
+        url: { type: string, format: uri }
+
+    CopyButton:
+      type: object
+      required: [type, text, code]
+      properties:
+        type: { type: string, enum: [copy] }
+        text: { type: string }
+        code: { type: string, description: "Copied to the user's clipboard" }
+
+    CallButton:
+      type: object
+      required: [type, text, phone]
+      properties:
+        type: { type: string, enum: [call] }
+        text: { type: string }
+        phone: { type: string, description: "Phone number to dial" }
+
+    PixButton:
+      type: object
+      required: [type, text, key, key_type, merchant_name, amount]
+      properties:
+        type: { type: string, enum: [pix] }
+        text: { type: string }
+        key: { type: string, description: "Pix key value" }
+        key_type:
+          type: string
+          enum: [phone, email, cpf, cnpj, random]
+          description: "phone→PHONE, email→EMAIL, cpf→CPF, cnpj→CNPJ, random→EVP"
+        merchant_name: { type: string }
+        amount: { type: integer, description: "In cents (BRL)" }

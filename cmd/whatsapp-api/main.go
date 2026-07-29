@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx registers as "postgres"
 	_ "modernc.org/sqlite"             // modernc.org/sqlite registers as "sqlite"
+	"go.mau.fi/whatsmeow/types/events"
 
 	"github.com/mauroneto/whatsmeow-api/internal/auth"
 	"github.com/mauroneto/whatsmeow-api/internal/config"
@@ -81,7 +82,24 @@ func main() {
 	// exponential-backoff retry.
 	dispatcher := webhook.NewDispatcher(db, instance.NewStore(db), cfg.EncryptionKey, webhook.DefaultConfig())
 	dispatcher.Start()
+	instanceStore := instance.NewStore(db)
 	mgr.SubscribeEvents(func(instanceID string, evt interface{}) {
+		// Persist status transitions to the DB so GET /admin/api/instances
+		// and the manager UI see the same status the whatsmeow client has.
+		switch evt.(type) {
+		case *events.Connected:
+			now := time.Now().UTC()
+			_ = instanceStore.SetStatus(instanceID, instance.StatusConnected, &now, &now)
+		case *events.Disconnected:
+			// If the disconnect was operator-driven, the handler has
+			// already set the status; this is the network-blip case.
+			if !mgr.IsExpectedDisconnect(instanceID) {
+				_ = instanceStore.SetStatus(instanceID, instance.StatusDisconnected, nil, nil)
+			}
+		case *events.LoggedOut:
+			_ = instanceStore.SetStatus(instanceID, instance.StatusLoggedOut, nil, nil)
+		}
+		// Forward to webhooks.
 		ev, ok := webhook.Normalize(instanceID, evt)
 		if !ok {
 			return
@@ -96,7 +114,7 @@ func main() {
 	})
 
 	_ = cfg // silence
-	router := buildRouter(cfg, db, mgr, dispatcher)
+	router := buildRouter(cfg, db, mgr, dispatcher, instanceStore)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           router,
@@ -158,7 +176,7 @@ func main() {
 	slog.Info("shutdown complete")
 }
 
-func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatcher *webhook.Dispatcher) *gin.Engine {
+func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatcher *webhook.Dispatcher, instanceStore *instance.Store) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.GET("/healthz", func(c *gin.Context) {
@@ -166,6 +184,12 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	})
 
 	sessions := auth.NewSessionStore(db)
+	// In production (HTTPS), prefer the `__Host-session` cookie name.
+	// For dev / HTTP we fall back to `session` because the `__Host-`
+	// prefix requires the Secure flag and clients silently drop it.
+	if false { // TODO: detect via X-Forwarded-Proto or env flag
+		sessions = auth.NewSessionStoreWithCookieName(db, "__Host-session")
+	}
 	limiter := auth.NewLoginRateLimiter()
 	authDeps := handlers.AdminAuthDeps{
 		DB:              db,
@@ -175,6 +199,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 		ManagerUsername: cfg.ManagerUsername,
 		SecureCookie:    false, // TODO: detect via X-Forwarded-Proto or env flag
 	}
+	audit := handlers.NewAuditLogger(db)
 	r.POST("/admin/login", handlers.LoginHandler(authDeps))
 	r.POST("/admin/logout", handlers.LogoutHandler(authDeps))
 	r.GET("/admin/login", handlers.LoginPageHandler(cfg.ManagerUsername))
@@ -183,14 +208,28 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	r.GET("/admin/instances/:id", handlers.AdminDetailPage(db))
 	r.GET("/admin/audit", handlers.AdminAuditPage(db))
 
-	instanceStore := instance.NewStore(db)
-	r.POST("/admin/api/instances", handlers.CreateInstanceHandler(instanceStore))
-	r.GET("/admin/api/instances", handlers.ListInstancesHandler(instanceStore))
-	r.GET("/admin/api/instances/:id", handlers.GetInstanceHandler(instanceStore))
-	r.GET("/admin/api/instances/:id/qr", handlers.InstanceQRHandler(mgr))
-	r.GET("/admin/api/instances/:id/status", handlers.InstanceStatusHandler(mgr))
-	r.PUT("/admin/api/instances/:id/webhook", handlers.SetWebhookHandler(instanceStore, cfg.EncryptionKey))
-	r.GET("/admin/api/instances/:id/webhook-deliveries", handlers.ListWebhookDeliveriesHandler(db))
+	// Manager-authenticated API routes (SessionMiddleware returns 401
+	// JSON for /admin/api/* and 302-redirects /admin/* HTML pages).
+	adminAPI := r.Group("/admin/api", auth.SessionMiddleware(sessions))
+	adminAPI.POST("/instances", handlers.CreateInstanceHandler(instanceStore))
+	adminAPI.GET("/instances", handlers.ListInstancesHandler(instanceStore))
+	adminAPI.GET("/instances/:id", handlers.GetInstanceHandler(instanceStore))
+	adminAPI.GET("/instances/:id/qr", handlers.InstanceQRHandler(mgr))
+	adminAPI.GET("/instances/:id/status", handlers.InstanceStatusHandler(mgr))
+	adminAPI.PUT("/instances/:id/webhook", handlers.SetWebhookHandler(instanceStore, cfg.EncryptionKey))
+	adminAPI.GET("/instances/:id/webhook-deliveries", handlers.ListWebhookDeliveriesHandler(db))
+
+	// Lifecycle endpoints (US-025..US-028)
+	lifecycleDeps := handlers.LifecycleDeps{
+		DB:      db,
+		Store:   instanceStore,
+		Manager: mgr,
+		Audit:   audit,
+	}
+	adminAPI.POST("/instances/:id/connect", handlers.ConnectInstanceHandler(lifecycleDeps))
+	adminAPI.POST("/instances/:id/disconnect", handlers.DisconnectInstanceHandler(lifecycleDeps))
+	adminAPI.POST("/instances/:id/reconnect", handlers.ReconnectInstanceHandler(lifecycleDeps))
+	adminAPI.DELETE("/instances/:id", handlers.DeleteInstanceHandler(lifecycleDeps))
 
 	// Swagger UI + raw OpenAPI spec (US-017 + US-018)
 	r.GET("/swagger", handlers.SwaggerUIHandler())

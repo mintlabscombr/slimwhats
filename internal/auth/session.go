@@ -23,15 +23,23 @@ type Session struct {
 
 // SessionStore persists manager sessions in the admin_sessions table.
 type SessionStore struct {
-	DB        *sql.DB
-	TTL       time.Duration // default 12h
-	CookieName string
+	DB         *sql.DB
+	TTL        time.Duration // default 12h
+	CookieName string        // default "session" — "__Host-session" when SecureCookie=true
 }
 
-// NewSessionStore returns a store with the default 12h TTL and `__Host-session`
-// cookie name.
+// NewSessionStore returns a store with the default 12h TTL. The cookie
+// name is `__Host-session` only when running over HTTPS (SecureCookie=true);
+// otherwise it's plain `session` because the `__Host-` prefix REQUIRES
+// the Secure flag and clients (browsers + curl) silently drop it otherwise.
 func NewSessionStore(db *sql.DB) *SessionStore {
-	return &SessionStore{DB: db, TTL: 12 * time.Hour, CookieName: "__Host-session"}
+	return &SessionStore{DB: db, TTL: 12 * time.Hour, CookieName: "session"}
+}
+
+// NewSessionStoreWithCookieName lets the caller pick the cookie name
+// (e.g. "__Host-session" in production over HTTPS).
+func NewSessionStoreWithCookieName(db *sql.DB, cookieName string) *SessionStore {
+	return &SessionStore{DB: db, TTL: 12 * time.Hour, CookieName: cookieName}
 }
 
 // ErrInvalidSession is returned by Validate when the session ID doesn't
