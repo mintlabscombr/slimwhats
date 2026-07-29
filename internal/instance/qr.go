@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 )
@@ -79,9 +80,30 @@ var ErrAlreadyPaired = errors.New("instance already paired")
 // GetLatestQR pulls one payload off the QR channel with a short timeout.
 // Returns the payload as a base64-encoded string (callers can render
 // it as a PNG).
+//
+// IMPORTANT: whatsmeow's GetQRChannel must be called BEFORE the client
+// has ever been Connect()'d. If the client is already in a connected
+// state (e.g. the operator opened the detail page once, got a QR,
+// didn't scan it within 60s, and is now refreshing the page), the
+// channel call returns "GetQRChannel must be called before connecting"
+// and no QR is returned. The fix is to Disconnect first, then start a
+// fresh GetQRChannel → Connect cycle.
+//
+// Only safe to call for unpaired clients — IsLoggedIn() must be false
+// (we don't want to disconnect a paired client just to fetch a QR).
 func GetLatestQR(ctx context.Context, client *whatsmeow.Client) (string, error) {
 	if client.IsLoggedIn() {
 		return "", ErrAlreadyPaired
+	}
+	// If the client is already connected, disconnect first so we can
+	// set up a fresh QR channel. This is a no-op for paired clients
+	// (we return early above) and only affects unpaired clients in
+	// the "connected, waiting for QR scan" state.
+	if client.IsConnected() {
+		client.Disconnect()
+		// Give whatsmeow a moment to release the socket before we
+		// re-init the QR channel.
+		time.Sleep(100 * time.Millisecond)
 	}
 	qrChan, err := client.GetQRChannel(ctx)
 	if err != nil {
@@ -89,6 +111,8 @@ func GetLatestQR(ctx context.Context, client *whatsmeow.Client) (string, error) 
 	}
 	go func() {
 		if err := client.Connect(); err != nil {
+			// context-canceled is expected; other errors are surfaced
+			// by the event subscriber (which writes to instance_logs).
 			_ = err
 		}
 	}()

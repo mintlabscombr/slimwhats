@@ -44,8 +44,9 @@ type AuditLogger interface {
 
 // ConnectInstanceHandler — POST /admin/api/instances/{id}/connect.
 // If the instance is not yet paired, returns 409. If already
-// connected, returns 200 with no-op. Otherwise calls Manager.Start
-// in a goroutine and returns 202.
+// connected, returns 200 with no-op (and syncs the DB status if it
+// drifted from reality). Otherwise calls Manager.Start in a goroutine
+// and returns 202.
 func ConnectInstanceHandler(deps LifecycleDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -66,17 +67,27 @@ func ConnectInstanceHandler(deps LifecycleDeps) gin.HandlerFunc {
 			return
 		}
 		cli := deps.Manager.Get(id)
+		// already_connected: websocket is open. Sync the DB status to
+		// reality in case it drifted (the event subscriber can miss
+		// transitions during a network blip + auto-reconnect, leaving
+		// the row at "disconnected" while the client is actually up).
 		if cli != nil && cli.IsConnected() {
+			syncStatusToClientState(deps.Store, id, cli)
 			c.JSON(http.StatusOK, gin.H{
 				"id":     id,
 				"status": "already_connected",
 			})
 			return
 		}
+		// not_paired: client exists but never scanned a QR, OR the
+		// client is not loaded at all. Either way, the operator needs
+		// to scan the QR on the detail page — there is no "connect"
+		// step for unpaired devices. The detail page renders the QR
+		// automatically when !cli.IsLoggedIn().
 		if cli == nil || !cli.IsLoggedIn() {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
 				"error":   "not_paired",
-				"message": "instance is not paired; call GET /qr first",
+				"message": "instance is not paired; open the detail page and scan the QR code",
 			})
 			return
 		}
@@ -96,6 +107,25 @@ func ConnectInstanceHandler(deps LifecycleDeps) gin.HandlerFunc {
 			"id":     id,
 			"status": "connecting",
 		})
+	}
+}
+
+// syncStatusToClientState writes the instance's DB status to match
+// what the whatsmeow client is actually doing. This is the "drift
+// correction" path — the event subscriber sometimes misses
+// transitions (especially during a network blip + auto-reconnect),
+// leaving the row in an inconsistent state. We only correct the row
+// when we have a positive signal from the live client.
+func syncStatusToClientState(store *instance.Store, id string, cli interface{ IsLoggedIn() bool }) {
+	now := time.Now().UTC()
+	if cli.IsLoggedIn() {
+		// Connected AND logged in → real "connected" state.
+		_ = store.SetStatus(id, instance.StatusConnected, &now, &now)
+	} else {
+		// Connected but not logged in → the device is in the middle
+		// of pairing (a QR scan is pending). "pairing" is the
+		// accurate status for the UI.
+		_ = store.SetStatus(id, instance.StatusPairing, nil, nil)
 	}
 }
 
@@ -261,11 +291,43 @@ func LifecycleActionHandler(deps LifecycleDeps) gin.HandlerFunc {
 			}
 			cli := deps.Manager.Get(id)
 			if cli != nil && cli.IsConnected() {
-				msg, msgClass = "Already connected.", "ok"
+				// Sync DB status to reality (drift correction) and
+				// give the operator a useful message depending on
+				// whether the client is also logged in. "Already
+				// connected" was misleading when the DB said
+				// "disconnected" — now we say exactly what the
+				// client is doing.
+				syncStatusToClientState(deps.Store, id, cli)
+				if cli.IsLoggedIn() {
+					msg = "Already connected."
+					msgClass = "ok"
+				} else {
+					msg = "Already connected (waiting for QR scan — see below)."
+					msgClass = "ok"
+				}
 				break
 			}
 			if cli == nil || !cli.IsLoggedIn() {
-				msg, msgClass = "Not paired yet — scan the QR code first.", "error"
+				// Unpaired device. The detail page renders a fresh
+				// QR when it loads. We kick the connect in a goroutine
+				// so the QR is in flight by the time the redirect
+				// lands (saves a few hundred ms of waiting). The
+				// user-facing message is "loading QR" rather than
+				// "not paired" because the latter sounds like a
+				// failure when really the system is just generating
+				// a pairing code.
+				if cli == nil {
+					cli = deps.Manager.Get(id)
+				}
+				if cli != nil {
+					go func() {
+						if err := cli.Connect(); err != nil {
+							_ = err
+						}
+					}()
+				}
+				msg = "Loading fresh QR — page will show it momentarily."
+				msgClass = "ok"
 				break
 			}
 			if err := deps.Manager.Start(ctx, id); err != nil {

@@ -212,7 +212,7 @@ var adminDetailTmpl = template.Must(
   {{if .QR}}
   <div style="margin-top:1rem;text-align:center">
     <h3 style="text-align:left">QR code</h3>
-    <p class="muted" style="text-align:left">Open WhatsApp → Linked Devices → Link a Device → scan this code. Refresh the page (Cmd+R) for a new one — the QR rotates every 60s.</p>
+    <p class="muted" style="text-align:left">Open WhatsApp → Linked Devices → Link a Device → scan this code. The QR rotates every 60s; if it expires, click <b>Connect</b> above to get a fresh one.</p>
     <img src="{{.QR}}" alt="WhatsApp pairing QR code" style="display:inline-block;border:1px solid #ddd;padding:.5rem;background:#fff;border-radius:6px">
   </div>
   {{end}}
@@ -423,10 +423,22 @@ func AdminDetailPage(db *sql.DB, mgr *instance.Manager) gin.HandlerFunc {
 		_ = v.UpdatedAt
 
 		// Auto-fetch a fresh QR if the instance isn't paired yet.
-		// Skips on already-paired instances (the QR block hides itself
-		// in the template via {{if .QR}}).
+		// Skip when already paired (the QR block hides itself via
+		// {{if .QR}} in the template).
+		//
+		// IMPORTANT: we check the *client's* logged-in state, not the
+		// DB status. The DB status can drift (e.g. a Disconnected event
+		// fires during a network blip while the client is in the middle
+		// of pairing and gets re-stuck in "connected, not logged in"
+		// state). When that happens, the DB says "disconnected" but
+		// the client is actively waiting for a QR scan — exactly the
+		// state where the operator needs to see the QR. fetchQRPNG
+		// itself is a no-op when the client is logged in, so this
+		// safe to call whenever we don't have a positive signal that
+		// the device is paired.
 		var qrPNG template.URL
-		if v.Status == instance.StatusCreated || v.Status == instance.StatusPairing {
+		cli := mgr.Get(id)
+		if cli != nil && !cli.IsLoggedIn() {
 			qrPNG = fetchQRPNG(mgr, id)
 		}
 
