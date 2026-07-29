@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,7 +19,9 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx registers as "postgres"
 	_ "modernc.org/sqlite"             // modernc.org/sqlite registers as "sqlite"
 
+	"github.com/mauroneto/whatsmeow-api/internal/auth"
 	"github.com/mauroneto/whatsmeow-api/internal/config"
+	"github.com/mauroneto/whatsmeow-api/internal/handlers"
 	"github.com/mauroneto/whatsmeow-api/internal/store"
 )
 
@@ -53,7 +56,7 @@ func main() {
 	}
 	slog.Info("database ready", "driver", cfg.DBDriver)
 
-	router := buildRouter()
+	router := buildRouter(cfg, db)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           router,
@@ -88,11 +91,25 @@ func main() {
 	slog.Info("shutdown complete")
 }
 
-func buildRouter() *gin.Engine {
+func buildRouter(cfg *config.Config, db *sql.DB) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+
+	sessions := auth.NewSessionStore(db)
+	limiter := auth.NewLoginRateLimiter()
+	authDeps := handlers.AdminAuthDeps{
+		DB:              db,
+		Sessions:        sessions,
+		Limiter:         limiter,
+		ManagerPassword: cfg.ManagerPassword,
+		ManagerUsername: cfg.ManagerUsername,
+		SecureCookie:    false, // TODO: detect via X-Forwarded-Proto or env flag
+	}
+	r.POST("/admin/login", handlers.LoginHandler(authDeps))
+	r.POST("/admin/logout", handlers.LogoutHandler(authDeps))
+
 	return r
 }
