@@ -22,6 +22,7 @@ const adminCSS = `
   header .nav a:hover { opacity: 1; }
   main { max-width: 1200px; margin: 1.5rem auto; padding: 0 1.5rem; }
   table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.05); border-radius: 6px; overflow: hidden; }
+  td.muted, td .muted { color: #bbb; }
   th, td { padding: .75rem 1rem; text-align: left; border-bottom: 1px solid #eee; }
   th { background: #fafafa; font-weight: 600; font-size: .85rem; color: #555; text-transform: uppercase; letter-spacing: .03em; }
   tr:last-child td { border-bottom: 0; }
@@ -95,6 +96,11 @@ var adminFuncs = template.FuncMap{
 // adminListTmpl is the home page (US-019). Calls {{chrome .Body "Title"}}
 // to render the full page; the chrome func wraps the body in the
 // shared layout.
+//
+// Column order is intentional: name + created (operator scans these
+// first) → status → phone/jid → webhook (configured?) → last activity
+// (which falls back to created_at for new instances so the column is
+// never blank). Empty cells render as muted "—" for visual consistency.
 var adminListTmpl = template.Must(
 	template.New("list").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center">
@@ -104,7 +110,14 @@ var adminListTmpl = template.Must(
   {{if .Instances}}
   <table>
     <thead>
-      <tr><th>Name</th><th>Status</th><th>Phone / JID</th><th>Webhook</th><th>Last seen</th><th>Created</th></tr>
+      <tr>
+        <th>Name</th>
+        <th>Status</th>
+        <th>Phone / JID</th>
+        <th>Webhook</th>
+        <th>Last seen</th>
+        <th>Created</th>
+      </tr>
     </thead>
     <tbody>
     {{range .Instances}}
@@ -112,9 +125,9 @@ var adminListTmpl = template.Must(
         <td><b>{{.Name}}</b></td>
         <td><span class="badge {{.Status}}">{{.Status}}</span></td>
         <td>{{if .Phone}}{{.Phone}}{{else}}<span class="muted">—</span>{{end}}</td>
-        <td>{{if .WebhookConfigured}}✓{{else}}<span class="muted">—</span>{{end}}</td>
-        <td>{{.LastSeen}}</td>
-        <td>{{.Created}}</td>
+        <td>{{if .WebhookConfigured}}<span title="{{.WebhookURL}}">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
+        <td>{{if .LastSeen}}{{.LastSeen}}{{else}}{{.Created}}{{end}}</td>
+        <td class="muted">{{.Created}}</td>
       </tr>
     {{end}}
     </tbody>
@@ -277,7 +290,8 @@ type InstanceRow struct {
 	Status            string
 	Phone             string
 	WebhookConfigured bool
-	LastSeen          string
+	WebhookURL        string
+	LastSeen          string // empty if the instance has never connected
 	Created           string
 	CreatedAt         time.Time
 }
@@ -304,12 +318,14 @@ func AdminListPage(db *sql.DB) gin.HandlerFunc {
 			}
 			if wh.Valid {
 				r.WebhookConfigured = true
+				r.WebhookURL = wh.String
 			}
 			if ls.Valid {
 				r.LastSeen = ls.Time.UTC().Format("2006-01-02 15:04")
-			} else {
-				r.LastSeen = "—"
 			}
+			// Note: r.LastSeen stays "" if the instance has never connected.
+			// The list template falls back to r.Created in that case so the
+			// column never shows a meaningless "—".
 			r.Created = r.CreatedAt.UTC().Format("2006-01-02 15:04")
 			list = append(list, r)
 		}
