@@ -322,12 +322,12 @@ func AdminDetailPage(db *sql.DB) gin.HandlerFunc {
 
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		_ = adminDetailTmpl.Execute(c.Writer, gin.H{
-			"Instance": v,
-			"ActionResult": c.Query("msg"),
+			"Instance":          v,
+			"ActionResult":      c.Query("msg"),
 			"ActionResultClass": c.Query("msg_class"),
-			"QR": c.Query("qr"),
-			"RevealedKey": c.Query("revealed_key"),
-			"NewAPIKey": c.Query("new_api_key"),
+			"QR":                c.Query("qr"),
+			"RevealedKey":       c.Query("revealed_key"),
+			"NewAPIKey":         c.Query("new_api_key"),
 		})
 	}
 }

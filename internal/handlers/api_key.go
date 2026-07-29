@@ -22,9 +22,9 @@ import (
 
 // APIKeyDeps groups the deps needed by the API-key handlers.
 type APIKeyDeps struct {
-	Store          *instance.Store
+	Store           *instance.Store
 	ManagerPassword string // plaintext, for the reveal re-auth check
-	Audit          AuditLogger
+	Audit           AuditLogger
 }
 
 // SetAPIKeyRequest is the JSON body for PUT .../api-key.
@@ -105,7 +105,7 @@ func SetAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 			deps.Audit.Log(c.Request.Context(), "instance.set_api_key", id, currentUser(c), c.ClientIP(), c.GetHeader("User-Agent"), nil)
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"id":            id,
+			"id":             id,
 			"api_key_masked": "sk_live_••••••••" + req.APIKey[len(req.APIKey)-4:],
 		})
 	}

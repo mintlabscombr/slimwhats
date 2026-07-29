@@ -22,8 +22,8 @@ type Manager struct {
 	Container *sqlstore.Container
 	Driver    string
 
-	mu      sync.RWMutex
-	clients map[string]*managedClient
+	mu            sync.RWMutex
+	clients       map[string]*managedClient
 	eventCallback EventCallback
 }
 
@@ -32,10 +32,10 @@ type Manager struct {
 // path so that whatsmeow's auto-reconnect does not immediately bring
 // the client back up.
 type managedClient struct {
-	instance            *Instance
-	device              *store.Device
-	client              *whatsmeow.Client
-	expectedDisconnect  bool
+	instance           *Instance
+	device             *store.Device
+	client             *whatsmeow.Client
+	expectedDisconnect bool
 }
 
 // NewManager creates the whatsmeow Container over the given DB and

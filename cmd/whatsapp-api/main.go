@@ -17,12 +17,11 @@ import (
 	"syscall"
 	"time"
 
-
 	"github.com/gin-gonic/gin"
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx registers as "postgres"
-	_ "modernc.org/sqlite"             // modernc.org/sqlite registers as "sqlite"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	_ "modernc.org/sqlite" // modernc.org/sqlite registers as "sqlite"
 
 	"github.com/mauroneto/whatsmeow-api/internal/auth"
 	"github.com/mauroneto/whatsmeow-api/internal/config"
@@ -314,8 +313,8 @@ func logEntry(store *instance.Store, instanceID string, evt interface{}) {
 		category = instance.LogCategoryGroup
 		message = "group info changed"
 		data = map[string]any{
-			"jid":   e.JID.String(),
-			"name":  e.Name,
+			"jid":  e.JID.String(),
+			"name": e.Name,
 		}
 	case *events.Contact:
 		category = instance.LogCategoryContact

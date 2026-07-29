@@ -21,7 +21,7 @@ import (
 
 // ButtonRequest is one button in the buttons array.
 type ButtonRequest struct {
-	Type        string `json:"type"`        // reply, url, copy, call, pix
+	Type        string `json:"type"` // reply, url, copy, call, pix
 	ID          string `json:"id,omitempty"`
 	Label       string `json:"label,omitempty"`
 	URL         string `json:"url,omitempty"`
@@ -365,7 +365,7 @@ func buildNativeFlowMessage(req ButtonsRequest, recipient types.JID, msgSecret [
 // bizXMLNode constructs <biz><interactive type="native_flow" v="1"><native_flow name="..."/></interactive></biz>.
 func bizXMLNode(name string) *binary.Node {
 	interactive := binary.Node{
-		Tag: "interactive",
+		Tag:   "interactive",
 		Attrs: binary.Attrs{"type": "native_flow", "v": "1"},
 		Content: []binary.Node{
 			{
@@ -429,7 +429,7 @@ func buildNativeFlowButton(b ButtonRequest) (*waE2E.InteractiveMessage_NativeFlo
 	case "call":
 		params, _ := json.Marshal(map[string]string{
 			"display_text": b.Label,
-			"phone_number":  b.PhoneNumber,
+			"phone_number": b.PhoneNumber,
 		})
 		return &waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
 			Name:             proto.String("cta_call"),

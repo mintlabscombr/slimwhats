@@ -65,8 +65,8 @@ func NewStore(db *sql.DB) *Store {
 
 // CreateInput is the validated input for creating an instance.
 type CreateInput struct {
-	Name     string
-	APIKey   string // plaintext; will be bcrypt-hashed before storage
+	Name   string
+	APIKey string // plaintext; will be bcrypt-hashed before storage
 }
 
 // Create persists a new instance in the `created` status, with the
@@ -115,13 +115,13 @@ func (s *Store) Create(in CreateInput) (*Instance, string, error) {
 		return nil, "", fmt.Errorf("insert instance: %w", err)
 	}
 	return &Instance{
-		ID:        id,
-		Name:      in.Name,
+		ID:         id,
+		Name:       in.Name,
 		APIKeyHash: hash,
-		Status:    StatusCreated,
-		APISetAt:  sql.NullTime{Time: now, Valid: true},
-		CreatedAt: now,
-		UpdatedAt: now,
+		Status:     StatusCreated,
+		APISetAt:   sql.NullTime{Time: now, Valid: true},
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}, plaintext, nil
 }
 

@@ -8,10 +8,10 @@ import (
 // PerJIDRateLimiter is a simple token bucket keyed by recipient JID.
 // 20 messages per 60s, configurable. Excess returns a Retry-After hint.
 type PerJIDRateLimiter struct {
-	mu       sync.Mutex
-	buckets  map[string]*bucket
-	max      int
-	window   time.Duration
+	mu      sync.Mutex
+	buckets map[string]*bucket
+	max     int
+	window  time.Duration
 }
 
 type bucket struct {
@@ -22,8 +22,8 @@ type bucket struct {
 func NewPerJIDRateLimiter() *PerJIDRateLimiter {
 	return &PerJIDRateLimiter{
 		buckets: make(map[string]*bucket),
-		max:    20,
-		window: 60 * time.Second,
+		max:     20,
+		window:  60 * time.Second,
 	}
 }
 

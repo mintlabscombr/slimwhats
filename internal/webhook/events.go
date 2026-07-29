@@ -81,7 +81,7 @@ func Normalize(instanceID string, raw interface{}) (Event, bool) {
 			Event: "group.changed", InstanceID: instanceID, Timestamp: ts,
 			Data: map[string]interface{}{
 				"jid":       e.JID.String(),
-				"name":     e.Name,
+				"name":      e.Name,
 				"timestamp": e.Timestamp.UTC().Format(time.RFC3339),
 			},
 		}, true
@@ -89,9 +89,9 @@ func Normalize(instanceID string, raw interface{}) (Event, bool) {
 		return Event{
 			Event: "presence.updated", InstanceID: instanceID, Timestamp: ts,
 			Data: map[string]interface{}{
-				"from":       e.From.String(),
-				"available":  !e.Unavailable,
-				"last_seen":  fmtTimestamp(e.LastSeen),
+				"from":      e.From.String(),
+				"available": !e.Unavailable,
+				"last_seen": fmtTimestamp(e.LastSeen),
 			},
 		}, true
 	}

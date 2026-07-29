@@ -17,9 +17,9 @@ import (
 
 // RecipInput is the input to Resolve.
 type RecipInput struct {
-	Number     string
-	FormatJID  *bool
-	DisableWA  bool // APP_CHECK_USER_EXISTS=false
+	Number    string
+	FormatJID *bool
+	DisableWA bool // APP_CHECK_USER_EXISTS=false
 }
 
 // Resolve implements the FR-13a pipeline: bypass list → IsOnWhatsApp

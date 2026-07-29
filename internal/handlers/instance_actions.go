@@ -82,14 +82,14 @@ func InstanceStatusHandler(mgr *instance.Manager) gin.HandlerFunc {
 			connected = cli.IsConnected()
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"id":         inst.ID,
-			"name":       inst.Name,
-			"status":     inst.Status,
-			"connected":  connected,
-			"logged_in":  cli != nil && cli.IsLoggedIn(),
-			"phone":      inst.Phone.String,
-			"jid":        inst.JID.String,
-			"lid":        inst.LID.String,
+			"id":        inst.ID,
+			"name":      inst.Name,
+			"status":    inst.Status,
+			"connected": connected,
+			"logged_in": cli != nil && cli.IsLoggedIn(),
+			"phone":     inst.Phone.String,
+			"jid":       inst.JID.String,
+			"lid":       inst.LID.String,
 		})
 	}
 }
@@ -149,8 +149,8 @@ func SetWebhookHandler(store *instance.Store, encryptionKey []byte) gin.HandlerF
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"id":   id,
-			"url":  req.URL,
+			"id":     id,
+			"url":    req.URL,
 			"status": "configured",
 		})
 	}
@@ -212,9 +212,9 @@ func InstanceAPIKeyAuth(mgr *instance.Manager) gin.HandlerFunc {
 // PingResponse is the shape returned by /api/v1/ping (sanity check
 // that the bearer-auth middleware is wired correctly).
 type PingResponse struct {
-	InstanceID string `json:"instance_id"`
+	InstanceID   string `json:"instance_id"`
 	InstanceName string `json:"instance_name"`
-	Connected  bool   `json:"connected"`
+	Connected    bool   `json:"connected"`
 }
 
 // PingHandler responds with the authenticated instance identity.
@@ -232,9 +232,9 @@ func PingHandler() gin.HandlerFunc {
 			id = inst.ID
 		}
 		c.JSON(http.StatusOK, PingResponse{
-			InstanceID: id,
+			InstanceID:   id,
 			InstanceName: name,
-			Connected:  connected,
+			Connected:    connected,
 		})
 	}
 }

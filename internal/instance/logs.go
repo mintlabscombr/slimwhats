@@ -29,13 +29,13 @@ const (
 type LogCategory string
 
 const (
-	LogCategoryConnect    LogCategory = "connect"
-	LogCategoryMessage    LogCategory = "message"
-	LogCategoryReceipt    LogCategory = "receipt"
-	LogCategoryGroup      LogCategory = "group"
-	LogCategoryContact    LogCategory = "contact"
-	LogCategoryPresence   LogCategory = "presence"
-	LogCategorySystem     LogCategory = "system"
+	LogCategoryConnect  LogCategory = "connect"
+	LogCategoryMessage  LogCategory = "message"
+	LogCategoryReceipt  LogCategory = "receipt"
+	LogCategoryGroup    LogCategory = "group"
+	LogCategoryContact  LogCategory = "contact"
+	LogCategoryPresence LogCategory = "presence"
+	LogCategorySystem   LogCategory = "system"
 )
 
 // LogEntry is one row in the instance_logs table.
@@ -52,8 +52,8 @@ type LogEntry struct {
 // LogQuery holds filter parameters for ListLogs.
 type LogQuery struct {
 	InstanceID string
-	Level      string // optional
-	Category   string // optional
+	Level      string     // optional
+	Category   string     // optional
 	Since      *time.Time // optional
 	Limit      int
 	Offset     int

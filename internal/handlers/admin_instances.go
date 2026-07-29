@@ -19,10 +19,10 @@ type CreateInstanceRequest struct {
 
 // CreateInstanceResponse is the JSON body for the create response.
 type CreateInstanceResponse struct {
-	ID     string             `json:"id"`
-	Name   string             `json:"name"`
-	APIKey string             `json:"api_key"`
-	Status instance.Status    `json:"status"`
+	ID     string          `json:"id"`
+	Name   string          `json:"name"`
+	APIKey string          `json:"api_key"`
+	Status instance.Status `json:"status"`
 }
 
 // CreateInstanceHandler handles POST /admin/api/instances. It auto-
@@ -71,20 +71,20 @@ func CreateInstanceHandler(store *instance.Store) gin.HandlerFunc {
 // deliberately omits the API key hash. Masked last-4 is shown instead
 // of the full key (US-031 reveal flow surfaces the full key when needed).
 type InstanceView struct {
-	ID               string          `json:"id"`
-	Name             string          `json:"name"`
-	Status           instance.Status `json:"status"`
-	Phone            string          `json:"phone,omitempty"`
-	JID              string          `json:"jid,omitempty"`
-	LID              string          `json:"lid,omitempty"`
-	WebhookURL       string          `json:"webhook_url,omitempty"`
-	WebhookConfigured bool           `json:"webhook_configured"`
-	APIKeyMasked     string          `json:"api_key_masked"`
-	APISetAt         string          `json:"api_key_set_at,omitempty"`
-	ConnectedAt      string          `json:"connected_at,omitempty"`
-	LastSeenAt       string          `json:"last_seen_at,omitempty"`
-	CreatedAt        time.Time       `json:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at"`
+	ID                string          `json:"id"`
+	Name              string          `json:"name"`
+	Status            instance.Status `json:"status"`
+	Phone             string          `json:"phone,omitempty"`
+	JID               string          `json:"jid,omitempty"`
+	LID               string          `json:"lid,omitempty"`
+	WebhookURL        string          `json:"webhook_url,omitempty"`
+	WebhookConfigured bool            `json:"webhook_configured"`
+	APIKeyMasked      string          `json:"api_key_masked"`
+	APISetAt          string          `json:"api_key_set_at,omitempty"`
+	ConnectedAt       string          `json:"connected_at,omitempty"`
+	LastSeenAt        string          `json:"last_seen_at,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
 }
 
 // ListInstancesHandler handles GET /admin/api/instances — paginated list.
@@ -139,9 +139,9 @@ func GetInstanceHandler(store *instance.Store) gin.HandlerFunc {
 
 func toView(inst *instance.Instance) InstanceView {
 	v := InstanceView{
-		ID:        inst.ID,
-		Name:      inst.Name,
-		Status:    inst.Status,
+		ID:           inst.ID,
+		Name:         inst.Name,
+		Status:       inst.Status,
 		APIKeyMasked: maskAPIKey(inst.APIKeyHash),
 	}
 	if inst.Phone.Valid {
