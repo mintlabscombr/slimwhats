@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -608,7 +609,34 @@ func (w waLogAdapter) Sub(module string) waLog.Logger {
 // is the version baked into the pairing DeviceProps. Both need to
 // be updated or the QR still reports "0.1.0" in the device props
 // the server sees during handshake. We update both.
+//
+// We also cache the fetched value (15min TTL) to avoid hammering
+// web.whatsapp.com on every instance start in a multi-instance
+// setup. Note: whatsmeow's own GetLatestVersion already sets a
+// proper Chrome User-Agent plus Sec-Fetch-* and Accept-Language
+// headers (see vendor update.go:37-43) — so unlike the
+// evolution-go reference, we don't have the "Go default UA" bug.
+const clientVersionCacheTTL = 15 * time.Minute
+
+var (
+	cachedClientVersion   waStore.WAVersionContainer
+	cachedClientVersionAt time.Time
+	cachedClientVersionMu sync.Mutex
+)
+
 func setClientVersion(logger *slog.Logger) {
+	// Check the cache first. A multi-instance setup creates N
+	// instances at boot — we don't want N parallel HTTP calls to
+	// web.whatsapp.com.
+	cachedClientVersionMu.Lock()
+	if !cachedClientVersionAt.IsZero() && time.Since(cachedClientVersionAt) < clientVersionCacheTTL {
+		version := cachedClientVersion
+		cachedClientVersionMu.Unlock()
+		applyClientVersion(logger, version, "cache")
+		return
+	}
+	cachedClientVersionMu.Unlock()
+
 	// Hardcoded fallback. Matches the era of mid-2026 WhatsApp Web
 	// releases. Update this periodically (every few months) or
 	// better yet, let the live fetch win.
@@ -620,18 +648,28 @@ func setClientVersion(logger *slog.Logger) {
 	} else {
 		logger.Warn("hardcoded fallback version unparseable; using library default", "err", err)
 	}
-	// Try the live fetch and override if it succeeds. 5s timeout so
-	// a flaky network can't block boot.
+	// Try the live fetch and override if it succeeds. 5s timeout
+	// so a flaky network can't block boot. Pass nil to let
+	// whatsmeow use its own tuned http.Client (which already
+	// sends a proper Chrome User-Agent — see update.go:37).
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	httpClient := &http.Client{Timeout: 5 * time.Second}
-	if latest, err := whatsmeow.GetLatestVersion(ctx, httpClient); err == nil {
+	if latest, err := whatsmeow.GetLatestVersion(ctx, nil); err == nil {
 		version = *latest
 		logger.Info("whatsmeow client version set (live fetch)", "version", latest.String())
+		// Persist in the cache for the next instance.
+		cachedClientVersionMu.Lock()
+		cachedClientVersion = version
+		cachedClientVersionAt = time.Now()
+		cachedClientVersionMu.Unlock()
 	} else {
 		logger.Warn("could not fetch live client version from web.whatsapp.com; using fallback",
 			"err", err, "fallback", fallbackVersion)
 	}
+	applyClientVersion(logger, version, "boot")
+}
+
+func applyClientVersion(logger *slog.Logger, version waStore.WAVersionContainer, source string) {
 	// Apply to BOTH globals: the ClientPayload one (SetWAVersion) and
 	// the DeviceProps one (the protobuf struct that gets sent in
 	// the pairing handshake).
@@ -641,4 +679,5 @@ func setClientVersion(logger *slog.Logger) {
 		Secondary: proto.Uint32(version[1]),
 		Tertiary:  proto.Uint32(version[2]),
 	}
+	logger.Info("client version applied", "source", source, "version", version.String())
 }
