@@ -43,8 +43,8 @@ const chromeHeader = `
   <div class="nav">
     <a href="/admin/">Instances</a>
     <a href="/admin/audit">Audit</a>
-    <a href="/swagger">Swagger</a>
-    <form style="display:inline" method="POST" action="/admin/logout"><button class="btn secondary" style="padding:.3rem .6rem;font-size:.8rem">Logout</button></form>
+    <a href="/swagger" target="_blank" rel="noopener noreferrer">Swagger</a>
+    <form class="inline" method="POST" action="/admin/logout"><button class="btn secondary btn-sm">Logout</button></form>
   </div>
 </header>
 `
@@ -90,7 +90,7 @@ var adminFuncs = template.FuncMap{
 // never blank). Empty cells render as muted "—" for visual consistency.
 var adminListTmpl = template.Must(
 	template.New("list").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center">
+  <div class="flex justify-between items-center">
     <h2>Instances</h2>
     <a class="btn" href="/admin/instances/new">+ New instance</a>
   </div>
@@ -136,7 +136,7 @@ var adminListTmpl = template.Must(
 
 // adminNewTmpl is the create form (US-020).
 var adminNewTmpl = template.Must(
-	template.New("new").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card" style="max-width:540px">
+	template.New("new").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card max-w-[540px]">
   <h2>New instance</h2>
   {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
   <form method="POST" action="/admin/instances/new">
@@ -144,7 +144,7 @@ var adminNewTmpl = template.Must(
     <input id="name" name="name" required maxlength="64" placeholder="e.g. Sales BR">
     <label for="api_key">API key (optional, leave blank to auto-generate)</label>
     <input id="api_key" name="api_key" placeholder="sk_live_...">
-    <div class="row" style="margin-top:.5rem">
+    <div class="row mt-2">
       <button class="btn" type="submit">Create</button>
       <a class="btn secondary" href="/admin/">Cancel</a>
     </div>
@@ -155,7 +155,7 @@ var adminNewTmpl = template.Must(
 // adminDetailTmpl is the per-instance page (US-021). Compact for v1.
 var adminDetailTmpl = template.Must(
 	template.New("detail").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center">
+  <div class="flex justify-between items-center">
     <h2>{{.Instance.Name}}</h2>
     <div>
       <a class="btn secondary" href="/admin/">Back</a>
@@ -164,29 +164,29 @@ var adminDetailTmpl = template.Must(
   <table>
     <tr><th>ID</th><td><code>{{.Instance.ID}}</code></td></tr>
     <tr><th>Status</th><td><span class="badge {{.Instance.Status}}">{{.Instance.Status}}</span></td></tr>
-    <tr><th>Phone</th><td>{{.Instance.Phone}}</td></tr>
-    <tr><th>JID</th><td>{{.Instance.JID}}</td></tr>
-    <tr><th>LID</th><td>{{.Instance.LID}}</td></tr>
-    <tr><th>API key set at</th><td>{{.Instance.APISetAt}}</td></tr>
+    <tr><th>Phone</th><td data-row="phone">{{.Instance.Phone}}</td></tr>
+    <tr><th>JID</th><td data-row="jid">{{.Instance.JID}}</td></tr>
+    <tr><th>LID</th><td data-row="lid">{{.Instance.LID}}</td></tr>
+    <tr><th>API key set at</th><td data-row="api_set_at">{{.Instance.APISetAt}}</td></tr>
     <tr><th>Webhook</th><td>{{if .Instance.WebhookConfigured}}{{.Instance.WebhookURL}}{{else}}<span class="muted">not configured</span>{{end}}</td></tr>
-    <tr><th>Connected at</th><td>{{.Instance.ConnectedAt}}</td></tr>
-    <tr><th>Last seen</th><td>{{.Instance.LastSeenAt}}</td></tr>
+    <tr><th>Connected at</th><td data-row="connected_at">{{.Instance.ConnectedAt}}</td></tr>
+    <tr><th>Last seen</th><td data-row="last_seen">{{.Instance.LastSeenAt}}</td></tr>
   </table>
 </div>
 
 <div class="card">
   <h2>Lifecycle</h2>
-  <form method="POST" action="/admin/instances/{{.Instance.ID}}" style="display:flex;gap:.5rem;flex-wrap:wrap">
+  <form method="POST" action="/admin/instances/{{.Instance.ID}}" class="flex gap-2 flex-wrap">
     <button class="btn" name="action" value="connect"{{if not .Instance.CanConnect}} disabled title="Connect is only available when the instance is disconnected or logged out"{{end}}>Connect</button>
     <button class="btn secondary" name="action" value="disconnect"{{if not .Instance.CanDisconnect}} disabled title="Disconnect is only available when the instance is connected"{{end}}>Disconnect</button>
     <button class="btn secondary" name="action" value="reconnect"{{if not .Instance.CanReconnect}} disabled title="Reconnect is only available when the instance is paired (connected, disconnected, or logged out)"{{end}}>Reconnect</button>
   </form>
   {{if .ActionResult}}<div class="{{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
   {{if .QR}}
-  <div style="margin-top:1rem;text-align:center">
-    <h3 style="text-align:left">QR code</h3>
-    <p class="muted" style="text-align:left">Open WhatsApp → Linked Devices → Link a Device → scan this code. The QR rotates every 60s.</p>
-    <img src="{{.QR}}" alt="WhatsApp pairing QR code" style="display:inline-block;border:1px solid #ddd;padding:.5rem;background:#fff;border-radius:6px">
+  <div class="mt-4 text-center">
+    <h3 class="text-left">QR code</h3>
+    <p class="muted text-left">Open WhatsApp → Linked Devices → Link a Device → scan this code. The QR rotates every 60s.</p>
+    <img id="qr-img" src="{{.QR}}" alt="WhatsApp pairing QR code" class="inline-block border border-gray-300 p-2 bg-white rounded-md">
   </div>
   {{end}}
 </div>
@@ -198,42 +198,42 @@ var adminDetailTmpl = template.Must(
     <input id="wh_url" name="url" placeholder="https://example.com/wh" value="{{.Instance.WebhookURL}}">
     <label>Current secret</label>
     {{if .Instance.WebhookSecret}}
-    <div style="display:flex;gap:.5rem;align-items:center">
-      <input id="whsec" type="password" value="{{.Instance.WebhookSecret}}" readonly style="flex:1;font-family:ui-monospace,Menlo,monospace;font-size:.85rem" onclick="this.select()">
+    <div class="flex gap-2 items-center">
+      <input id="whsec" type="password" value="{{.Instance.WebhookSecret}}" readonly class="flex-1 font-mono text-sm" onclick="this.select()">
       <button class="btn secondary" type="button" onclick="var i=document.getElementById('whsec');var b=document.getElementById('whsec-btn');if(i.type==='password'){i.type='text';b.textContent='Hide'}else{i.type='password';b.textContent='Show'}" id="whsec-btn">Show</button>
     </div>
-    <label for="wh_secret" style="margin-top:.75rem">New secret (optional)</label>
+    <label for="wh_secret" class="mt-3">New secret (optional)</label>
     <input id="wh_secret" name="secret" type="password" placeholder="leave blank to keep current">
     {{else}}
     <input id="wh_secret" name="secret" type="password" placeholder="any non-empty value">
     {{end}}
     <button class="btn" type="submit">Save</button>
   </form>
-  <p class="muted" style="margin-top:.5rem">Sent as <code>X-Webhook-Secret</code> on every event. Empty the URL and the new-secret field to clear the config.</p>
+  <p class="muted mt-2">Sent as <code>X-Webhook-Secret</code> on every event. Empty the URL and the new-secret field to clear the config.</p>
 </div>
 
 <div class="card">
   <h2>API key</h2>
   {{if .Instance.APIKey}}
-  <div style="display:flex;gap:.5rem;align-items:center">
-    <input id="apikey" type="password" value="{{.Instance.APIKey}}" readonly style="flex:1;font-family:ui-monospace,Menlo,monospace;font-size:.85rem" onclick="this.select()">
+  <div class="flex gap-2 items-center">
+    <input id="apikey" type="password" value="{{.Instance.APIKey}}" readonly class="flex-1 font-mono text-sm" onclick="this.select()">
     <button class="btn secondary" type="button" onclick="var i=document.getElementById('apikey');var b=document.getElementById('apikey-btn');if(i.type==='password'){i.type='text';b.textContent='Hide'}else{i.type='password';b.textContent='Show'}" id="apikey-btn">Show</button>
   </div>
-  <p class="muted" style="margin-top:.5rem">Click the field to select all, or click <b>Show</b> to read it directly. Use <b>Rotate</b> below to generate a new key (the old one dies immediately).</p>
+  <p class="muted mt-2">Click the field to select all, or click <b>Show</b> to read it directly. Use <b>Rotate</b> below to generate a new key (the old one dies immediately).</p>
   {{else}}
   <p class="muted">No API key set yet. Click <b>Rotate</b> below to generate one.</p>
   {{end}}
-  <form method="POST" action="/admin/instances/{{.Instance.ID}}/api-key/rotate" style="margin-top:1rem;display:flex;gap:.5rem;align-items:center">
+  <form method="POST" action="/admin/instances/{{.Instance.ID}}/api-key/rotate" class="mt-4 flex gap-2 items-center">
     <button class="btn danger" type="submit" onclick="return confirm('Rotate API key? The old key stops working immediately.')">Rotate API key</button>
   </form>
   {{if .NewAPIKey}}
-  <div class="ok" style="margin-top:1rem;word-break:break-all">New key: <code>{{.NewAPIKey}}</code></div>
+  <div class="ok mt-4 break-all">New key: <code>{{.NewAPIKey}}</code></div>
   {{end}}
 </div>
 
 <div class="card">
   <h2>Danger zone</h2>
-  <form method="POST" action="/admin/instances/{{.Instance.ID}}/delete" style="display:flex;gap:.5rem;align-items:center">
+  <form method="POST" action="/admin/instances/{{.Instance.ID}}/delete" class="flex gap-2 items-center">
     <button class="btn danger" type="submit" onclick="return confirm('Delete this instance? This is irreversible.')">Delete instance</button>
   </form>
 </div>{{end}}`),
@@ -254,7 +254,7 @@ var adminAuditTmpl = template.Must(
         <td><code>{{.Action}}</code></td>
         <td>{{if .TargetID}}<a href="/admin/instances/{{.TargetID}}">{{.TargetID}}</a>{{else}}<span class="muted">—</span>{{end}}</td>
         <td>{{.SourceIP}}</td>
-        <td class="muted" style="font-size:.75rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.UserAgent}}</td>
+        <td class="muted text-xs max-w-[200px] truncate">{{.UserAgent}}</td>
       </tr>
     {{end}}
     </tbody>
