@@ -18,6 +18,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -31,6 +32,7 @@ import (
 
 // APIKeyDeps groups the deps needed by the API-key handlers.
 type APIKeyDeps struct {
+	DB              *sql.DB
 	Store           *instance.Store
 	Manager         *instance.Manager
 	ManagerPassword string // plaintext, for the reveal re-auth check
@@ -236,14 +238,20 @@ func RevealAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 // /admin/instances/{id}/{action} (no /api/ segment, no DELETE
 // verb — HTML forms only support GET/POST), so we need a small
 // shim that reads the action from the URL and routes to the
-// matching logic. Then it redirects back to the detail page
-// (or the list page, for delete) with a status message in the
-// query string.
+// matching logic.
 //
 // Routes handled (all POST):
 //
 //	POST /admin/instances/{id}/api-key/rotate → generate a new key
 //	POST /admin/instances/{id}/delete         → delete the instance
+//
+// For `rotate`, F-03 / US-005 re-renders the detail page on
+// success AND on error (no redirect, no query string — the URL
+// stays /admin/instances/{id}). Error messages come from the
+// errors.go catalog via the `message` funcMap; success uses the
+// existing ActionResult pattern. For `delete`, we still redirect
+// to the list page (the instance is gone — no detail page to
+// re-render).
 //
 // (The old `reveal-key` action used to live here too — removed when
 // the manager-password / Re-fetch-from-DB form on the detail page
@@ -267,38 +275,38 @@ func APIKeyFormActionHandler(deps APIKeyDeps) gin.HandlerFunc {
 
 		switch action {
 		case "rotate":
+			// F-03 / US-005: re-render the detail page on every
+			// outcome (success or error). Map each failure to an
+			// error code from the catalog; resolve to English via
+			// Message() at render time so the URL stays clean.
 			inst, err := deps.Store.GetByID(id)
 			if err != nil {
-				redirectWithMsg(c, path, "error", "Lookup failed: "+err.Error())
+				slog.Warn("APIKeyFormActionHandler: lookup failed", "id", id, "err", err)
+				renderInstanceDetail(c, deps.DB, deps.Manager, &WebhookForm{}, Message(ErrCodeLookupFailed), "error")
 				return
 			}
 			if inst == nil {
-				redirectWithMsg(c, path, "error", "Instance not found.")
+				renderInstanceDetail(c, deps.DB, deps.Manager, &WebhookForm{}, Message(ErrCodeNotFound), "error")
 				return
 			}
 			plaintext, err := instance.GenerateAPIKey()
 			if err != nil {
-				redirectWithMsg(c, path, "error", "Generate failed: "+err.Error())
+				slog.Warn("APIKeyFormActionHandler: generate failed", "id", id, "err", err)
+				renderInstanceDetail(c, deps.DB, deps.Manager, &WebhookForm{}, Message(ErrCodeAPIKeyRotateFailed), "error")
 				return
 			}
 			if err := deps.Store.SetAPIKey(id, plaintext); err != nil {
-				redirectWithMsg(c, path, "error", "Rotate failed: "+err.Error())
+				slog.Warn("APIKeyFormActionHandler: set failed", "id", id, "err", err)
+				renderInstanceDetail(c, deps.DB, deps.Manager, &WebhookForm{}, Message(ErrCodeAPIKeySetFailed), "error")
 				return
 			}
 			if deps.Audit != nil {
 				deps.Audit.Log(c.Request.Context(), "instance.rotate_api_key", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
 			}
-			// F-03 / US-007: drop the `?new_api_key=...` query param.
-			// The new key is in the show/hide field on the detail
-			// page; the operator reads it from there.
-			//
-			// F-03 / US-005 will convert this whole handler to a
-			// re-render of the detail page (no redirect) and switch
-			// the success/error banner to an error-code lookup. For
-			// US-007 we just kill the new-key banner; the redirect-
-			// with-msg pattern stays.
-			_ = plaintext
-			c.Redirect(http.StatusFound, "/admin/instances/"+id+"?msg=API+key+rotated.&msg_class=ok")
+			// Success: re-render the detail page with the new key
+			// visible via the show/hide field. No redirect, no
+			// query string — the operator just sees the new key.
+			renderInstanceDetail(c, deps.DB, deps.Manager, &WebhookForm{}, "API key rotated.", "ok")
 
 		case "delete":
 			deps.Manager.Remove(id)

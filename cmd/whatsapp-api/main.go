@@ -349,6 +349,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	// reveal / delete on the detail page) and the JSON API. Declared
 	// early for the same reason as lifecycleDeps.
 	apiKeyDeps := handlers.APIKeyDeps{
+		DB:              db,
 		Store:           instanceStore,
 		Manager:         mgr,
 		ManagerPassword: cfg.ManagerPassword,
