@@ -213,6 +213,31 @@ func (m *Manager) Start(ctx context.Context, instanceID string) error {
 	// different (events.QR.Codes direct consumption, not
 	// GetQRChannel). We'll revisit if this causes other issues.
 	client.EnableAutoReconnect = true
+	// Suppress WhatsApp's automatic history sync. The server
+	// sends a HistorySyncNotification (events.HistorySync,
+	// with syncType=5 INITIAL_BOOTSTRAP) on first connect and
+	// then on every "missed messages" catch-up. By default
+	// whatsmeow downloads the file payload and dispatches it
+	// as events.HistorySync with the parsed conversation
+	// history (potentially megabytes). For a programmatic API
+	// we don't want any of that — and the server's
+	// HistorySyncConfig (FullSyncDaysLimit etc) we set at boot
+	// doesn't suppress the initial bootstrap.
+	//
+	// ManualHistorySyncDownload=true keeps the notification
+	// metadata event from triggering the download loop
+	// (message.go: ~line 705) — the file stays on WhatsApp's
+	// server, we never see the bytes.
+	//
+	// DisableManualHistorySyncReceipt=true skips the protocol
+	// message receipt we'd otherwise send back, so the server
+	// keeps the file available in case the user later wants
+	// to trigger a manual download via DownloadHistorySync.
+	// (We don't expose that, but the cost of leaving the
+	// receipt on is nil and the "no ack = server retries if
+	// the connection drops" property is occasionally useful.)
+	client.ManualHistorySyncDownload = true
+	client.DisableManualHistorySyncReceipt = true
 	// Force PairClientChrome on the QR. whatsmeow's getQRClientType()
 	// uses cli.QRClientType first (per-client override), then falls
 	// back to the global store.DeviceProps.PlatformType. We were
