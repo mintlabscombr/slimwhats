@@ -389,8 +389,14 @@ func (m *Manager) IsExpectedDisconnect(instanceID string) bool {
 
 // loadInstance fetches a single instance row by id.
 func (m *Manager) loadInstance(ctx context.Context, id string) (*Instance, error) {
+	// F-03: added webhook_secret to the SELECT. scanInstanceRows
+	// expects 14 columns; the previous 13-column SELECT matched
+	// the F-01 schema before the drop-encryption migration
+	// added webhook_secret to the table. The mismatch surfaced
+	// the first time a freshly-created instance was lazy-loaded
+	// via the new AdminNewSubmit → mgr.Start path (US-008).
 	row := m.DB.QueryRowContext(ctx, `
-		SELECT id, name, api_key, webhook_url, status, phone, jid, lid,
+		SELECT id, name, api_key, webhook_url, webhook_secret, status, phone, jid, lid,
 		       connected_at, last_seen_at, api_key_set_at, created_at, updated_at
 		FROM instances WHERE id = ?`, id)
 	return scanInstance(row)

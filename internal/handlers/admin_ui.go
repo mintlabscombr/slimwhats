@@ -379,7 +379,14 @@ func AdminNewPage() gin.HandlerFunc {
 // but if one is set the other must be too — validated inside
 // store.Create). Lets the operator wire a webhook at create time
 // instead of going through the detail page afterwards.
-func AdminNewSubmit(store *instance.Store) gin.HandlerFunc {
+//
+// F-03 / US-008: after a successful create, the manager is asked
+// to load + start the whatsmeow client for the new instance. The
+// detail page then renders the QR immediately, so the operator
+// can scan and pair without having to click a "start" button or
+// refresh. The call is fire-and-forget — a failure to load/start
+// is logged but does NOT fail the create (the row is still valid).
+func AdminNewSubmit(store *instance.Store, mgr *instance.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		name := strings.TrimSpace(c.PostForm("name"))
 		apiKey := strings.TrimSpace(c.PostForm("api_key"))
@@ -402,6 +409,18 @@ func AdminNewSubmit(store *instance.Store) gin.HandlerFunc {
 			}
 			c.Redirect(http.StatusFound, "/admin/instances/new?error="+url.QueryEscape(err.Error()))
 			return
+		}
+		// F-03 / US-008: kick the manager so the whatsmeow client is
+		// loaded and the QR is visible on the detail page. Fire-and-
+		// forget — if the load fails (e.g. schema mismatch, missing
+		// whatsmeow_device row) the instance row is still valid and
+		// the operator can see the detail page; the QR block just
+		// won't render until the load is fixed.
+		if mgr != nil {
+			if loadErr := mgr.Start(c.Request.Context(), inst.ID); loadErr != nil {
+				slog.Warn("auto-load client after create failed",
+					"id", inst.ID, "err", loadErr)
+			}
 		}
 		// Pass the freshly-generated key through the query string
 		// so the detail page can show it in a one-time "your new

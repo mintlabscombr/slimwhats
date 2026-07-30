@@ -373,7 +373,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	// pattern as the lifecycle / api-key / delete handlers:
 	// form posts → handler runs → 302 to the next page with
 	// msg + msg_class in the query string.
-	adminUI.POST("/instances/new", handlers.AdminNewSubmit(instanceStore))
+	adminUI.POST("/instances/new", handlers.AdminNewSubmit(instanceStore, mgr))
 	adminUI.GET("/instances/:id", handlers.AdminDetailPage(db, mgr))
 	// Form-based dispatcher for the lifecycle buttons in the
 	// manager detail page (Connect/Disconnect/Reconnect). Reads
