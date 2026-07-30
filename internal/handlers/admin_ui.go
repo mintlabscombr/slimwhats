@@ -226,11 +226,20 @@ var adminDetailTmpl = template.Must(
   <form method="POST" action="/admin/instances/{{.Instance.ID}}/webhook">
     <label for="wh_url">URL</label>
     <input id="wh_url" name="url" placeholder="https://example.com/wh" value="{{.Instance.WebhookURL}}">
-    <label for="wh_secret">Secret (any length)</label>
+    <label>Current secret</label>
+    {{if .Instance.WebhookSecret}}
+    <div style="display:flex;gap:.5rem;align-items:center">
+      <input id="whsec" type="password" value="{{.Instance.WebhookSecret}}" readonly style="flex:1;font-family:ui-monospace,Menlo,monospace;font-size:.85rem" onclick="this.select()">
+      <button class="btn secondary" type="button" onclick="var i=document.getElementById('whsec');var b=document.getElementById('whsec-btn');if(i.type==='password'){i.type='text';b.textContent='Hide'}else{i.type='password';b.textContent='Show'}" id="whsec-btn">Show</button>
+    </div>
+    <label for="wh_secret" style="margin-top:.75rem">New secret (optional)</label>
     <input id="wh_secret" name="secret" type="password" placeholder="leave blank to keep current">
+    {{else}}
+    <input id="wh_secret" name="secret" type="password" placeholder="any non-empty value">
+    {{end}}
     <button class="btn" type="submit">Save</button>
   </form>
-  <p class="muted" style="margin-top:.5rem">Empty both fields to clear the webhook config.</p>
+  <p class="muted" style="margin-top:.5rem">Sent as <code>X-Webhook-Secret</code> on every event. Empty the URL and the new-secret field to clear the config.</p>
 </div>
 
 <div class="card">
@@ -555,14 +564,14 @@ func AdminAuditPage(db *sql.DB) gin.HandlerFunc {
 // getInstanceView is a small helper that loads a single instance by id.
 func getInstanceView(db *sql.DB, id string) (*InstanceView, error) {
 	row := db.QueryRow(`
-		SELECT id, name, status, phone, jid, lid, webhook_url, status,
+		SELECT id, name, status, phone, jid, lid, webhook_url, webhook_secret,
 		       connected_at, last_seen_at, api_key, api_key_set_at, created_at, updated_at
 		FROM instances WHERE id = ?`, id)
 	var v InstanceView
-	var phone, jid, lid, wh sql.NullString
+	var phone, jid, lid, wh, whsec sql.NullString
 	var ca, ls, as sql.NullTime
 	var apiKey sql.NullString
-	if err := row.Scan(&v.ID, &v.Name, &v.Status, &phone, &jid, &lid, &wh, &v.Status, &ca, &ls, &apiKey, &as, &v.CreatedAt, &v.UpdatedAt); err != nil {
+	if err := row.Scan(&v.ID, &v.Name, &v.Status, &phone, &jid, &lid, &wh, &whsec, &ca, &ls, &apiKey, &as, &v.CreatedAt, &v.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -580,6 +589,13 @@ func getInstanceView(db *sql.DB, id string) (*InstanceView, error) {
 	if wh.Valid {
 		v.WebhookURL = wh.String
 		v.WebhookConfigured = true
+	}
+	// Webhook secret is stored in plaintext (post 2026-07-29 drop-
+	// encryption). Surface the value to the detail page so the
+	// show/hide field can render it; the field starts masked
+	// (type="password") and the user toggles visibility client-side.
+	if whsec.Valid && whsec.String != "" {
+		v.WebhookSecret = whsec.String
 	}
 	if ca.Valid {
 		v.ConnectedAt = ca.Time.UTC().Format("2006-01-02 15:04:05.999999-07:00")

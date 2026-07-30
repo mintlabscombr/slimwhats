@@ -25,19 +25,20 @@ const (
 
 // Instance is the row in the `instances` table.
 type Instance struct {
-	ID          string
-	Name        string
-	APIKey      string // plaintext (post 2026-07-29 drop-bcrypt). May be empty if not yet rotated.
-	WebhookURL  sql.NullString
-	Status      Status
-	Phone       sql.NullString
-	JID         sql.NullString
-	LID         sql.NullString
-	ConnectedAt sql.NullTime
-	LastSeenAt  sql.NullTime
-	APISetAt    sql.NullTime
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID            string
+	Name          string
+	APIKey        string // plaintext (post 2026-07-29 drop-bcrypt). May be empty if not yet rotated.
+	WebhookURL    sql.NullString
+	WebhookSecret sql.NullString // plaintext (post 2026-07-29 drop-encryption). Column is BLOB but the bytes are ASCII.
+	Status        Status
+	Phone         sql.NullString
+	JID           sql.NullString
+	LID           sql.NullString
+	ConnectedAt   sql.NullTime
+	LastSeenAt    sql.NullTime
+	APISetAt      sql.NullTime
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // APIKeyRegex enforces the operator-supplied key shape. The auto-generated
@@ -124,7 +125,7 @@ func (s *Store) Create(in CreateInput) (*Instance, string, error) {
 // GetByID returns the instance with the given id, or nil if not found.
 func (s *Store) GetByID(id string) (*Instance, error) {
 	row := s.DB.QueryRow(`
-		SELECT id, name, api_key, webhook_url, status, phone, jid, lid,
+		SELECT id, name, api_key, webhook_url, webhook_secret, status, phone, jid, lid,
 		       connected_at, last_seen_at, api_key_set_at, created_at, updated_at
 		FROM instances WHERE id = ?`, id)
 	return scanInstance(row)
@@ -133,7 +134,7 @@ func (s *Store) GetByID(id string) (*Instance, error) {
 // GetByName returns the instance with the given name, or nil if not found.
 func (s *Store) GetByName(name string) (*Instance, error) {
 	row := s.DB.QueryRow(`
-		SELECT id, name, api_key, webhook_url, status, phone, jid, lid,
+		SELECT id, name, api_key, webhook_url, webhook_secret, status, phone, jid, lid,
 		       connected_at, last_seen_at, api_key_set_at, created_at, updated_at
 		FROM instances WHERE name = ?`, name)
 	return scanInstance(row)
@@ -143,7 +144,7 @@ func (s *Store) GetByName(name string) (*Instance, error) {
 // created_at DESC.
 func (s *Store) ListAll(limit, offset int) ([]*Instance, error) {
 	rows, err := s.DB.Query(`
-		SELECT id, name, api_key, webhook_url, status, phone, jid, lid,
+		SELECT id, name, api_key, webhook_url, webhook_secret, status, phone, jid, lid,
 		       connected_at, last_seen_at, api_key_set_at, created_at, updated_at
 		FROM instances ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
@@ -178,7 +179,7 @@ func scanInstanceRows(row rowScanner) (*Instance, error) {
 	var status string
 	var apiKey sql.NullString
 	err := row.Scan(
-		&inst.ID, &inst.Name, &apiKey, &inst.WebhookURL,
+		&inst.ID, &inst.Name, &apiKey, &inst.WebhookURL, &inst.WebhookSecret,
 		&status, &inst.Phone, &inst.JID, &inst.LID,
 		&inst.ConnectedAt, &inst.LastSeenAt, &inst.APISetAt,
 		&inst.CreatedAt, &inst.UpdatedAt,

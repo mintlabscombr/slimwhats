@@ -183,6 +183,13 @@ func startsWith(s, prefix string) bool {
 // store.SetWebhook, and redirects back to the detail page with a
 // status message in the query string. Same pattern as
 // LifecycleActionHandler / APIKeyFormActionHandler.
+//
+// "New secret" semantics: the form submits an empty secret when the
+// operator only wants to update the URL. In that case we keep the
+// existing secret from the DB so the operator doesn't have to
+// re-enter it (and so we don't accidentally null the secret out
+// after a URL-only edit). The "clear" case is the original behavior:
+// both URL and new-secret blank → SetWebhook("", "").
 func WebhookFormActionHandler(store *instance.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -201,10 +208,27 @@ func WebhookFormActionHandler(store *instance.Store) gin.HandlerFunc {
 			// Validate URL
 			if !isValidWebhookURL(webhookURL) {
 				msg, msgClass = "URL must start with https:// (or http://localhost for dev).", "error"
-			} else if err := store.SetWebhook(id, webhookURL, secret); err != nil {
-				msg, msgClass = "Save failed: "+err.Error(), "error"
 			} else {
-				msg, msgClass = "Webhook saved.", "ok"
+				// If new secret is blank, keep the existing one. If
+				// none exists yet, require a non-empty secret on
+				// the first save.
+				if secret == "" {
+					_, existing, err := store.LoadWebhookSecret(id)
+					if err != nil {
+						msg, msgClass = "Read failed: "+err.Error(), "error"
+					} else if existing == "" {
+						msg, msgClass = "Secret is required on first save.", "error"
+					} else {
+						secret = existing
+					}
+				}
+				if msg == "" {
+					if err := store.SetWebhook(id, webhookURL, secret); err != nil {
+						msg, msgClass = "Save failed: "+err.Error(), "error"
+					} else {
+						msg, msgClass = "Webhook saved.", "ok"
+					}
+				}
 			}
 		}
 

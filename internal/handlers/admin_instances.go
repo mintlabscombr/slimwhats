@@ -74,6 +74,10 @@ func CreateInstanceHandler(store *instance.Store) gin.HandlerFunc {
 // show/hide widget; the JSON API still returns only `APIKeyMasked`
 // (last-4) to keep the on-the-wire payload small. The detail page
 // uses `APIKey` directly.
+//
+// Same deal for `WebhookSecret` (post 2026-07-29 drop-encryption):
+// the plaintext lives in `WebhookSecret` for the manager UI's
+// show/hide widget, and the JSON API omits it (`json:"-"`).
 type InstanceView struct {
 	ID                string          `json:"id"`
 	Name              string          `json:"name"`
@@ -83,6 +87,7 @@ type InstanceView struct {
 	LID               string          `json:"lid,omitempty"`
 	WebhookURL        string          `json:"webhook_url,omitempty"`
 	WebhookConfigured bool            `json:"webhook_configured"`
+	WebhookSecret     string          `json:"-"` // plaintext; HTML only
 	APIKeyMasked      string          `json:"api_key_masked"`
 	APIKey            string          `json:"-"` // plaintext; HTML only
 	APISetAt          string          `json:"api_key_set_at,omitempty"`
@@ -171,6 +176,9 @@ func toView(inst *instance.Instance) InstanceView {
 	if inst.WebhookURL.Valid {
 		v.WebhookURL = inst.WebhookURL.String
 		v.WebhookConfigured = true
+	}
+	if inst.WebhookSecret.Valid {
+		v.WebhookSecret = inst.WebhookSecret.String
 	}
 	if inst.APISetAt.Valid {
 		v.APISetAt = inst.APISetAt.Time.UTC().Format("2006-01-02T15:04:05Z07:00")
