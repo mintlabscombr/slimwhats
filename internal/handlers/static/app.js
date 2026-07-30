@@ -14,6 +14,50 @@
  */
 (function () {
   'use strict';
+
+  // --- Toast API (F-04) ------------------------------------------------
+  // window.showToast(message, type, opts?) — append a toast to
+  // #toast-stack, auto-dismiss after opts.duration ms (default 3000;
+  // pass 0 to keep open until manually removed). Returns the toast
+  // element. Pure DOM, no deps. Pages that want a one-shot toast on
+  // load set `data-show-toast="message|type"` on <body> (or any
+  // element); this script reads it once and clears the attribute.
+  window.showToast = function (message, type, opts) {
+    var stack = document.getElementById('toast-stack');
+    if (!stack) return null;
+    type = type || 'info';
+    opts = opts || {};
+    var ms = typeof opts.duration === 'number' ? opts.duration : 3000;
+    var el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.textContent = message;
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    stack.appendChild(el);
+    if (ms > 0) {
+      setTimeout(function () {
+        el.style.transition = 'opacity 0.3s, transform 0.3s';
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(20px)';
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 320);
+      }, ms);
+    }
+    return el;
+  };
+
+  // Read a one-shot `data-show-toast` attribute from <body> and show
+  // it. Format: "message|type" (type defaults to "info"). Cleared
+  // after consumption so a refresh doesn't re-trigger.
+  function consumeOneShotToast() {
+    var raw = document.body && document.body.getAttribute('data-show-toast');
+    if (!raw) return;
+    document.body.removeAttribute('data-show-toast');
+    var i = raw.indexOf('|');
+    if (i < 0) { window.showToast(raw, 'info'); return; }
+    window.showToast(raw.slice(0, i), raw.slice(i + 1) || 'info');
+  }
+  consumeOneShotToast();
+
   // The chrome wrapper is <main class="main-content">; pages that
   // need SSE hooks mark a child element with data-sse-mode.
   var main = document.querySelector('[data-sse-mode]');
@@ -47,11 +91,24 @@
     var card = document.querySelector('[data-instance-id="' + d.instance_id + '"]');
     if (!card) return;
     var b = card.querySelector('.badge');
+    var prev = b ? b.textContent : '';
     if (b && d.status) { b.className = 'badge ' + d.status; b.textContent = d.status; }
     var ph = card.querySelector('[data-field="phone"]');
     if (ph && 'phone' in d) ph.textContent = d.phone || '—';
     var ls = card.querySelector('[data-field="last_seen"]');
     if (ls && d.last_seen) ls.textContent = d.last_seen;
+    // F-04: surface cross-instance transitions as a toast. The
+    // operator is on the list page (not the detail page), so the
+    // QR/identity updates aren't directly visible — a toast gives
+    // them a "hey, that device finished pairing" signal without
+    // making them click into the card.
+    if (d.status === 'connected' && prev && prev !== 'connected') {
+      var name = (card.querySelector('h3') || {}).textContent || d.instance_id;
+      window.showToast('Instance "' + name + '" is now connected.', 'success');
+    } else if (d.status === 'disconnected' && prev === 'connected') {
+      var name = (card.querySelector('h3') || {}).textContent || d.instance_id;
+      window.showToast('Instance "' + name + '" disconnected.', 'warn', { duration: 5000 });
+    }
   }
 
   function updateDetail(d) {

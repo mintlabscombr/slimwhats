@@ -265,4 +265,47 @@
   body.login .hint {
     @apply mt-6 text-xs text-gray-500 text-center;
   }
+
+  /* --- Toasts (F-04) ----------------------------------------------------
+   *
+   * Transient notifications that stack in the top-right corner. Used
+   * for cross-page events ("another instance just connected") and
+   * one-shot server-rendered confirmations (a page that wants to
+   * surface a success message on load sets `data-show-toast` on
+   * <body>). The persistent .alert block at the top of a page is
+   * for form-submit confirmations; toasts are for everything else.
+   *
+   * - `.toast-stack` is fixed top-right, z-50, pointer-events-none so
+   *   clicks pass through the gaps between toasts. Each toast opts
+   *   back into pointer events so its own close button (future) works.
+   * - Toasts slide in from the right + fade in (CSS animation, no JS).
+   * - Auto-dismiss is handled in app.js (setTimeout → fade out + remove).
+   * - `role="status" aria-live="polite"` so screen readers announce
+   *   new toasts without interrupting the current focus. */
+
+  .toast-stack {
+    @apply fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none;
+    max-width: 360px;
+  }
+  .toast {
+    @apply px-4 py-3 rounded-lg shadow-card bg-white border
+           pointer-events-auto text-sm;
+    animation: toast-in 0.2s ease-out;
+  }
+  .toast.success {
+    @apply bg-green-50 border-green-200 text-green-800;
+  }
+  .toast.error {
+    @apply bg-red-50 border-red-200 text-red-700;
+  }
+  .toast.info {
+    @apply bg-blue-50 border-blue-200 text-blue-800;
+  }
+  .toast.warn {
+    @apply bg-yellow-50 border-yellow-200 text-yellow-800;
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
 }

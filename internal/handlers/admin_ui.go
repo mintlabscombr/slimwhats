@@ -66,6 +66,11 @@ const chromeHeader = `
 // blocks all overwrite each other — only the last-defined one wins,
 // which made every page render the audit page. Inlining the chrome
 // via a FuncMap sidesteps the shared-tree issue entirely.
+//
+// F-04: the closing `</body>` is followed by a `<div id="toast-stack">`
+// mount point so the toast JS (F-04) can append transient notifications.
+// Login page (admin_pages.go) uses a separate layout that doesn't
+// include the toast stack — the manager UI is where toasts matter.
 func chromeFunc(title string, body template.HTML) (template.HTML, error) {
 	out := fmt.Sprintf(`<!doctype html>
 <html lang="en">
@@ -78,6 +83,7 @@ func chromeFunc(title string, body template.HTML) (template.HTML, error) {
 <body>
 %s
 <main class="main-content">%s</main>
+<div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
 <script>%s</script>
 </body>
 </html>`, title, string(adminCSS), chromeHeader, string(body), string(adminJS))
