@@ -243,16 +243,6 @@ var adminDetailTmpl = template.Must(
   {{else}}
   <p class="muted">No API key set yet. Click <b>Rotate</b> below to generate one.</p>
   {{end}}
-  <form method="POST" action="/admin/instances/{{.Instance.ID}}/reveal-key" style="margin-top:1rem;display:flex;gap:.5rem;align-items:flex-end;flex-wrap:wrap">
-    <div style="flex:1;min-width:200px">
-      <label for="mgr_pw">Manager password (to re-fetch from DB)</label>
-      <input id="mgr_pw" name="manager_password" type="password">
-    </div>
-    <button class="btn" type="submit">Re-fetch from DB</button>
-  </form>
-  {{if .RevealedKey}}
-  <div class="ok" style="margin-top:1rem;word-break:break-all"><code>{{.RevealedKey}}</code></div>
-  {{end}}
   <form method="POST" action="/admin/instances/{{.Instance.ID}}/api-key/rotate" style="margin-top:1rem;display:flex;gap:.5rem;align-items:center">
     <button class="btn danger" type="submit" onclick="return confirm('Rotate API key? The old key stops working immediately.')">Rotate API key</button>
   </form>
@@ -488,7 +478,6 @@ func AdminDetailPage(db *sql.DB, mgr *instance.Manager) gin.HandlerFunc {
 			"ActionResult":      c.Query("msg"),
 			"ActionResultClass": c.Query("msg_class"),
 			"QR":                qrPNG,
-			"RevealedKey":       c.Query("revealed_key"),
 			"NewAPIKey":         c.Query("new_api_key"),
 		}, c)
 	}

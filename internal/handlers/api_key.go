@@ -245,8 +245,13 @@ func RevealAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 // Routes handled (all POST):
 //
 //	POST /admin/instances/{id}/api-key/rotate → generate a new key
-//	POST /admin/instances/{id}/reveal-key     → return plaintext (in query string)
 //	POST /admin/instances/{id}/delete         → delete the instance
+//
+// (The old `reveal-key` action used to live here too — removed when
+// the manager-password / Re-fetch-from-DB form on the detail page
+// was dropped. Programmatic reveals go through the JSON endpoint
+// RevealAPIKeyHandler at POST /admin/api/instances/{id}/api-key/reveal,
+// which still requires the manager password.)
 func APIKeyFormActionHandler(deps APIKeyDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
@@ -258,7 +263,6 @@ func APIKeyFormActionHandler(deps APIKeyDeps) gin.HandlerFunc {
 		id := parts[2]
 		// The action is the last path segment. URLs look like:
 		//   /admin/instances/{id}/api-key/rotate → action="rotate"
-		//   /admin/instances/{id}/reveal-key     → action="reveal-key"
 		//   /admin/instances/{id}/delete         → action="delete"
 		action := parts[len(parts)-1]
 		username := currentUser(c)
@@ -290,43 +294,6 @@ func APIKeyFormActionHandler(deps APIKeyDeps) gin.HandlerFunc {
 			// the query string so the template can render it in a
 			// copy-friendly code block.
 			c.Redirect(http.StatusFound, "/admin/instances/"+id+"?msg=API+key+rotated.&msg_class=ok&new_api_key="+url.QueryEscape(plaintext))
-
-		case "reveal-key":
-			// Reveal is a 2-step flow: the form on the detail page
-			// POSTs here with manager_password in the body. Validate
-			// the password then return the stored plaintext in the
-			// query string (the template's show/hide field reads
-			// from `Instance.APIKey` and a separate `?revealed_key=`
-			// override shows the just-revealed value).
-			var req RevealAPIKeyRequest
-			if err := c.ShouldBind(&req); err != nil {
-				redirectWithMsg(c, path, "error", "manager_password field is required.")
-				return
-			}
-			if !auth.CompareConstantTime(req.ManagerPassword, deps.ManagerPassword) {
-				if deps.Audit != nil {
-					deps.Audit.Log(c.Request.Context(), "instance.api_key_reveal_failed", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
-				}
-				redirectWithMsg(c, path, "error", "Invalid manager password.")
-				return
-			}
-			inst, err := deps.Store.GetByID(id)
-			if err != nil {
-				redirectWithMsg(c, path, "error", "Lookup failed: "+err.Error())
-				return
-			}
-			if inst == nil {
-				redirectWithMsg(c, path, "error", "Instance not found.")
-				return
-			}
-			if inst.APIKey == "" {
-				redirectWithMsg(c, path, "error", "No API key set yet — click Rotate to generate one.")
-				return
-			}
-			if deps.Audit != nil {
-				deps.Audit.Log(c.Request.Context(), "instance.api_key_revealed", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
-			}
-			c.Redirect(http.StatusFound, "/admin/instances/"+id+"?msg=API+key+revealed.&msg_class=ok&revealed_key="+url.QueryEscape(inst.APIKey))
 
 		case "delete":
 			deps.Manager.Remove(id)

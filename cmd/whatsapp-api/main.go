@@ -381,10 +381,13 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	// method, then redirects back to the detail page.
 	adminUI.POST("/instances/:id", handlers.LifecycleActionHandler(lifecycleDeps))
 	// Form-based dispatcher for the api-key buttons (Rotate /
-	// Reveal / Delete). The HTML forms submit to /admin/instances/{id}/...
+	// Delete). The HTML forms submit to /admin/instances/{id}/...
 	// (no /api/ segment, no DELETE verb) so we need a shim.
+	// (The old `reveal-key` form action was removed when the
+	// manager-password / Re-fetch-from-DB UI was dropped — the
+	// JSON API at POST /admin/api/instances/{id}/api-key/reveal
+	// still handles programmatic reveals.)
 	adminUI.POST("/instances/:id/api-key/rotate", handlers.APIKeyFormActionHandler(apiKeyDeps))
-	adminUI.POST("/instances/:id/reveal-key", handlers.APIKeyFormActionHandler(apiKeyDeps))
 	adminUI.POST("/instances/:id/delete", handlers.APIKeyFormActionHandler(apiKeyDeps))
 	adminUI.GET("/audit", handlers.AdminAuditPage(db))
 
