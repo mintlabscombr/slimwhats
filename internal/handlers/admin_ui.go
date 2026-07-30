@@ -139,7 +139,10 @@ var adminNewTmpl = template.Must(
 
 // adminDetailTmpl is the per-instance page (US-021). Compact for v1.
 var adminDetailTmpl = template.Must(
-	template.New("detail").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card">
+	template.New("detail").Funcs(adminFuncs).Parse(`{{define "render"}}
+{{if .ActionResult}}<div class="alert {{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
+{{if .NewAPIKey}}<div class="ok mb-6 break-all">New API key (copy it now — it won't be shown again): <code>{{.NewAPIKey}}</code></div>{{end}}
+<div class="card">
   <div class="flex justify-between items-center">
     <h2>{{.Instance.Name}}</h2>
     <div>
@@ -166,7 +169,6 @@ var adminDetailTmpl = template.Must(
     <button class="btn secondary" name="action" value="disconnect"{{if not .Instance.CanDisconnect}} disabled title="Disconnect is only available when the instance is connected"{{end}}>Disconnect</button>
     <button class="btn secondary" name="action" value="reconnect"{{if not .Instance.CanReconnect}} disabled title="Reconnect is only available when the instance is paired (connected, disconnected, or logged out)"{{end}}>Reconnect</button>
   </form>
-  {{if .ActionResult}}<div class="{{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
   {{if .QR}}
   <div class="mt-4 text-center">
     <h3 class="text-left">QR code</h3>
@@ -211,9 +213,6 @@ var adminDetailTmpl = template.Must(
   <form method="POST" action="/admin/instances/{{.Instance.ID}}/api-key/rotate" class="mt-4 flex gap-2 items-center">
     <button class="btn danger" type="submit" onclick="return confirm('Rotate API key? The old key stops working immediately.')">Rotate API key</button>
   </form>
-  {{if .NewAPIKey}}
-  <div class="ok mt-4 break-all">New key: <code>{{.NewAPIKey}}</code></div>
-  {{end}}
 </div>
 
 <div class="card">
