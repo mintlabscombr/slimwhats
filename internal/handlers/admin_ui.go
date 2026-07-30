@@ -35,6 +35,15 @@ import (
 //go:embed static/app.css
 var adminCSS []byte
 
+// adminJS is the live-update client (F-02/US-040). Embedded from
+// `static/app.js` and inlined at the end of <body> by chromeFunc.
+// The script self-routes via `data-sse-mode` on <main>, so the same
+// script can be inlined on every page without side effects on pages
+// that don't need it (login, new instance, audit).
+//
+//go:embed static/app.js
+var adminJS []byte
+
 // chromeHeader is the shared <header> block (the green bar with nav).
 // Each page template includes it via the chrome funcMap.
 const chromeHeader = `
@@ -69,9 +78,10 @@ func chromeFunc(title string, body template.HTML) (template.HTML, error) {
 </head>
 <body>
 %s
-<main>%s</main>
+<main class="main-content">%s</main>
+<script>%s</script>
 </body>
-</html>`, title, string(adminCSS), chromeHeader, string(body))
+</html>`, title, string(adminCSS), chromeHeader, string(body), string(adminJS))
 	return template.HTML(out), nil
 }
 
@@ -89,12 +99,13 @@ var adminFuncs = template.FuncMap{
 // (which falls back to created_at for new instances so the column is
 // never blank). Empty cells render as muted "—" for visual consistency.
 var adminListTmpl = template.Must(
-	template.New("list").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card">
+	template.New("list").Funcs(adminFuncs).Parse(`{{define "render"}}<div data-sse-mode="list">
+<div class="card">
   <div class="flex justify-between items-center">
     <h2>Instances</h2>
     <a class="btn" href="/admin/instances/new">+ New instance</a>
   </div>
-  {{if .ActionResult}}<div class="{{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
+  {{if .ActionResult}}<div class="alert {{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
   {{if .Instances}}
   <div class="card-grid">
     {{range .Instances}}
@@ -104,9 +115,9 @@ var adminListTmpl = template.Must(
         <span class="badge {{.Status}}">{{.Status}}</span>
       </div>
       <div class="card-meta">
-        <div><span class="key">Phone</span>{{if .Phone}}{{.Phone}}{{else}}<span class="muted">—</span>{{end}}</div>
+        <div><span class="key">Phone</span><span data-field="phone">{{if .Phone}}{{.Phone}}{{else}}<span class="muted">—</span>{{end}}</span></div>
         <div><span class="key">Webhook</span>{{if .WebhookConfigured}}<span title="{{.WebhookURL}}">✓</span>{{else}}<span class="muted">—</span>{{end}}</div>
-        <div><span class="key">Last seen</span>{{if .LastSeen}}{{.LastSeen}}{{else}}{{.Created}}{{end}}</div>
+        <div><span class="key">Last seen</span><span data-field="last_seen">{{if .LastSeen}}{{.LastSeen}}{{else}}{{.Created}}{{end}}</span></div>
         <div><span class="key">Created</span><span class="muted">{{.Created}}</span></div>
       </div>
       <span class="card-open">Open →</span>
@@ -116,6 +127,7 @@ var adminListTmpl = template.Must(
   {{else}}
   <p class="muted">No instances yet. <a href="/admin/instances/new">Create one</a>.</p>
   {{end}}
+</div>
 </div>{{end}}`),
 )
 
@@ -139,9 +151,11 @@ var adminNewTmpl = template.Must(
 
 // adminDetailTmpl is the per-instance page (US-021). Compact for v1.
 var adminDetailTmpl = template.Must(
-	template.New("detail").Funcs(adminFuncs).Parse(`{{define "render"}}
+	template.New("detail").Funcs(adminFuncs).Parse(`{{define "render"}}<div data-sse-mode="detail" data-instance-id="{{.Instance.ID}}">
+<div data-alert-slot>
 {{if .ActionResult}}<div class="alert {{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
 {{if .NewAPIKey}}<div class="ok mb-6 break-all">New API key (copy it now — it won't be shown again): <code>{{.NewAPIKey}}</code></div>{{end}}
+</div>
 <div class="card">
   <div class="flex justify-between items-center">
     <h2>{{.Instance.Name}}</h2>
@@ -220,6 +234,7 @@ var adminDetailTmpl = template.Must(
   <form method="POST" action="/admin/instances/{{.Instance.ID}}/delete" class="flex gap-2 items-center">
     <button class="btn danger" type="submit" onclick="return confirm('Delete this instance? This is irreversible.')">Delete instance</button>
   </form>
+</div>
 </div>{{end}}`),
 )
 

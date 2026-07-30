@@ -58,8 +58,11 @@
     @apply opacity-100 border-b border-white/60;
   }
 
-  /* Page main container — consistent vertical rhythm between cards. */
-  main {
+  /* Page main container — consistent vertical rhythm between cards.
+   * Wrapped by chromeFunc in a <main class="main-content">. Templates
+   * that need SSE hooks mark an inner element with data-sse-mode
+   * ("list" or "detail") so app.js can find the page mode. */
+  main.main-content {
     @apply max-w-screen-xl mx-auto my-6 px-6 space-y-6;
   }
 
