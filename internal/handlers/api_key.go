@@ -65,8 +65,8 @@ type RevealAPIKeyResponse struct {
 }
 
 // SetAPIKeyHandler — PUT /admin/api/instances/{id}/api-key.
-// Operator-supplied key. Regex-validated against APIKeyRegex
-// (^sk_live_[A-Za-z0-9]{16,128}$). Returns 200 + masked
+// Operator-supplied key. F-03 / US-002 dropped the regex check:
+// any non-empty string is now accepted. Returns 200 + masked
 // representation. The plaintext is stored as-is in the api_key column.
 func SetAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -79,13 +79,11 @@ func SetAPIKeyHandler(deps APIKeyDeps) gin.HandlerFunc {
 			})
 			return
 		}
-		if !instance.APIKeyRegex.MatchString(req.APIKey) {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"error":   "invalid_api_key",
-				"message": "api_key must match ^sk_live_[A-Za-z0-9]{16,128}$",
-			})
-			return
-		}
+		// F-03 / US-002: no more format check. The operator can
+		// use any opaque string — UUID, base64, custom prefix,
+		// whatever their client code expects. The auto-generated
+		// key from POST /rotate is the only path that still emits
+		// the `sk_live_` prefix; user-supplied keys are unrestricted.
 		// Confirm the instance exists first.
 		inst, err := deps.Store.GetByID(id)
 		if err != nil {

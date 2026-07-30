@@ -41,8 +41,13 @@ type Instance struct {
 	UpdatedAt     time.Time
 }
 
-// APIKeyRegex enforces the operator-supplied key shape. The auto-generated
-// keys are constructed to match this same pattern.
+// APIKeyRegex is kept for documentation and tests but no longer gates
+// any code path. F-03 / US-002 lifted the operator-supplied key
+// validation: any non-empty string is now accepted. Auto-generated
+// keys still happen to match this pattern (32 random bytes → 43-char
+// base64url = 50 chars total, well within the 16-128 range), so the
+// "looks like a key" check remains available if a future caller wants
+// to re-add it.
 var APIKeyRegex = regexp.MustCompile(`^sk_live_[A-Za-z0-9]{16,128}$`)
 
 // ErrNameTaken is returned by Create when an instance with the same
@@ -107,9 +112,12 @@ func (s *Store) Create(in CreateInput) (*Instance, string, error) {
 		if err != nil {
 			return nil, "", fmt.Errorf("generate api key: %w", err)
 		}
-	} else if !APIKeyRegex.MatchString(plaintext) {
-		return nil, "", errors.New("api_key must match ^sk_live_[A-Za-z0-9]{16,128}$")
 	}
+	// F-03 / US-002: drop the regex check. Any non-empty string
+	// is now a valid API key — operators can use UUIDs, base64,
+	// or any other opaque token. The auto-generated key still has
+	// the `sk_live_` prefix (see generateAPIKey); the user-supplied
+	// path is unrestricted.
 
 	id, err := newID()
 	if err != nil {
