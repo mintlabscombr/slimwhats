@@ -131,8 +131,21 @@
     });
     if (d.status === 'connected' && !connectedShown) {
       connectedShown = true;
-      var slot = document.querySelector('[data-alert-slot]');
-      if (slot) slot.innerHTML = '<div class="alert ok">Connected ✓ — reloading in 2s</div>';
+      // F-04 follow-up: surface the connect as a toast (instant,
+      // non-blocking) AND keep the reload (lifecycle button matrix
+      // is server-computed in getInstanceView and needs the full
+      // page state to render correctly). The reload is the only
+      // way to get the right enable/disable state for Connect /
+      // Disconnect / Reconnect buttons without reimplementing the
+      // matrix in JS. The toast gives the operator the immediate
+      // feedback the old banner was trying to provide.
+      var name = document.querySelector('h2');
+      var label = (name && name.textContent) || 'this instance';
+      window.showToast('"' + label + '" is now connected. Reloading…', 'success', { duration: 2500 });
+      // Tighten the XSS surface too: the old code wrote
+      // `slot.innerHTML = '<div...>text</div>'` — the text was
+      // static but the pattern is risky. The toast is the primary
+      // signal now, so the reload is silent.
       setTimeout(function () { location.reload(); }, 2000);
     }
   }
