@@ -164,7 +164,6 @@ var adminDetailTmpl = template.Must(
 	template.New("detail").Funcs(adminFuncs).Parse(`{{define "render"}}<div data-sse-mode="detail" data-instance-id="{{.Instance.ID}}">
 <div data-alert-slot>
 {{if .ActionResult}}<div class="alert {{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
-{{if .NewAPIKey}}<div class="ok mb-6 break-all">New API key (copy it now — it won't be shown again): <code>{{.NewAPIKey}}</code></div>{{end}}
 </div>
 <div class="card">
   <div class="flex justify-between items-center">
@@ -422,14 +421,13 @@ func AdminNewSubmit(store *instance.Store, mgr *instance.Manager) gin.HandlerFun
 					"id", inst.ID, "err", loadErr)
 			}
 		}
-		// Pass the freshly-generated key through the query string
-		// so the detail page can show it in a one-time "your new
-		// key" banner. The show/hide field on the detail page
-		// also reads from the DB so the operator can copy it from
-		// there too.
-		c.Redirect(http.StatusFound,
-			"/admin/instances/"+inst.ID+
-				"?msg=Instance+created.&msg_class=ok&new_api_key="+url.QueryEscape(plaintext))
+		// F-03 / US-007: no more "New API key" banner. The plaintext
+		// is in the show/hide field on the detail page; the operator
+		// can read it from there. Landing on the detail page itself
+		// is the success signal.
+		_ = plaintext // kept in the function signature for the auto-gen
+		              // case; not surfaced via the URL anymore.
+		c.Redirect(http.StatusFound, "/admin/instances/"+inst.ID)
 	}
 }
 
@@ -498,7 +496,6 @@ func AdminDetailPage(db *sql.DB, mgr *instance.Manager) gin.HandlerFunc {
 			"ActionResult":      c.Query("msg"),
 			"ActionResultClass": c.Query("msg_class"),
 			"QR":                qrPNG,
-			"NewAPIKey":         c.Query("new_api_key"),
 		}, c)
 	}
 }

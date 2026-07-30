@@ -290,10 +290,17 @@ func APIKeyFormActionHandler(deps APIKeyDeps) gin.HandlerFunc {
 			if deps.Audit != nil {
 				deps.Audit.Log(c.Request.Context(), "instance.rotate_api_key", id, username, c.ClientIP(), c.GetHeader("User-Agent"), nil)
 			}
-			// Redirect back to the detail page with the new key in
-			// the query string so the template can render it in a
-			// copy-friendly code block.
-			c.Redirect(http.StatusFound, "/admin/instances/"+id+"?msg=API+key+rotated.&msg_class=ok&new_api_key="+url.QueryEscape(plaintext))
+			// F-03 / US-007: drop the `?new_api_key=...` query param.
+			// The new key is in the show/hide field on the detail
+			// page; the operator reads it from there.
+			//
+			// F-03 / US-005 will convert this whole handler to a
+			// re-render of the detail page (no redirect) and switch
+			// the success/error banner to an error-code lookup. For
+			// US-007 we just kill the new-key banner; the redirect-
+			// with-msg pattern stays.
+			_ = plaintext
+			c.Redirect(http.StatusFound, "/admin/instances/"+id+"?msg=API+key+rotated.&msg_class=ok")
 
 		case "delete":
 			deps.Manager.Remove(id)
