@@ -268,11 +268,9 @@ func buttonsResponseType(firstType string) string {
 // buildButtonsMessage constructs the *waE2E.Message and the SendRequestExtra
 // (with biz/bot XML AdditionalNodes) for the button composition.
 func buildButtonsMessage(req ButtonsRequest, recipient types.JID, msgSecret []byte) (*waE2E.Message, whatsmeow.SendRequestExtra, error) {
-	extra := whatsmeow.SendRequestExtra{}
-
 	// Two paths: reply (ButtonsMessage) or non-reply (InteractiveMessage)
 	if req.Buttons[0].Type == "reply" {
-		return buildReplyButtonsMessage(req, msgSecret), extra, nil
+		return buildReplyButtonsMessage(req, recipient, msgSecret)
 	}
 	bizName, addBot := bizNameForButtons(req.Buttons[0].Type)
 	return buildNativeFlowMessage(req, recipient, msgSecret, bizName, addBot)
@@ -289,7 +287,7 @@ func bizNameForButtons(firstType string) (string, bool) {
 	}
 }
 
-func buildReplyButtonsMessage(req ButtonsRequest, msgSecret []byte) *waE2E.Message {
+func buildReplyButtonsMessage(req ButtonsRequest, recipient types.JID, msgSecret []byte) (*waE2E.Message, whatsmeow.SendRequestExtra, error) {
 	btns := make([]*waE2E.ButtonsMessage_Button, 0, len(req.Buttons))
 	for _, b := range req.Buttons {
 		btns = append(btns, &waE2E.ButtonsMessage_Button{
@@ -307,7 +305,7 @@ func buildReplyButtonsMessage(req ButtonsRequest, msgSecret []byte) *waE2E.Messa
 		HeaderType:  waE2E.ButtonsMessage_EMPTY.Enum(),
 		Buttons:     btns,
 	}
-	return &waE2E.Message{
+	msg := &waE2E.Message{
 		DocumentWithCaptionMessage: &waE2E.FutureProofMessage{
 			Message: &waE2E.Message{ButtonsMessage: bm},
 		},
@@ -315,6 +313,27 @@ func buildReplyButtonsMessage(req ButtonsRequest, msgSecret []byte) *waE2E.Messa
 			MessageSecret: msgSecret,
 		},
 	}
+	// Without the <biz> XML node injected as an AdditionalNode,
+	// the message arrives on the phone but doesn't render as
+	// interactive — the ButtonsMessage envelope is enough for the
+	// server to accept it, but the XMPP layer needs the
+	// <biz><interactive type="native_flow" v="1">
+	//   <native_flow name="quick_reply"/>
+	// </interactive></biz> hint so the WhatsApp client treats it
+	// as a buttons message instead of plain text. This is the
+	// same node we inject for the native-flow paths (url/copy/
+	// call/pix) — just with a different `name`. <bot biz_bot="1"/>
+	// is added for 1:1 chats only (the receiver interprets it
+	// as "send from bot/business" — in groups it would confuse
+	// the threading).
+	nodes := []binary.Node{*bizXMLNode("quick_reply")}
+	if recipient.Server == "s.whatsapp.net" {
+		nodes = append(nodes, *botXMLNode())
+	}
+	extra := whatsmeow.SendRequestExtra{
+		AdditionalNodes: &nodes,
+	}
+	return msg, extra, nil
 }
 
 func buildNativeFlowMessage(req ButtonsRequest, recipient types.JID, msgSecret []byte, bizName string, addBot bool) (*waE2E.Message, whatsmeow.SendRequestExtra, error) {
