@@ -17,13 +17,15 @@ import (
 // AuditLoggerImpl is the concrete implementation of the AuditLogger
 // interface used by the lifecycle handlers.
 type AuditLoggerImpl struct {
-	DB *sql.DB
+	DB  *sql.DB
+	Bus *AuditBus // optional; if set, every Log call also publishes
 }
 
 // NewAuditLogger returns an AuditLoggerImpl ready to use. Pass nil
-// for db to disable audit logging.
-func NewAuditLogger(db *sql.DB) *AuditLoggerImpl {
-	return &AuditLoggerImpl{DB: db}
+// for db to disable audit logging. bus may be nil — a nil bus is
+// a no-op publisher (see AuditBus.Publish).
+func NewAuditLogger(db *sql.DB, bus *AuditBus) *AuditLoggerImpl {
+	return &AuditLoggerImpl{DB: db, Bus: bus}
 }
 
 // Log inserts a row into admin_actions. The data map is JSON-encoded
@@ -64,6 +66,31 @@ func (a *AuditLoggerImpl) Log(ctx context.Context, action, targetID, username, s
 	)
 	if err != nil {
 		slog.Warn("audit insert", "action", action, "err", err)
+	}
+	// Fire-and-forget publish. The DB is the source of truth; the bus
+	// is a best-effort hint to connected browsers. Publish happens
+	// regardless of the DB outcome — if the insert failed, the operator
+	// still wants to see the attempt on the live page (it's the only
+	// signal that something happened, since the row never landed). The
+	// bus itself is non-blocking (per-subscriber buffer = 16; full
+	// buffers drop the entry for that subscriber).
+	//
+	// Timestamp is formatted the same way the audit page renders it
+	// ("2006-01-02 15:04:05 UTC") so SSE-inserted rows look identical
+	// to the rows the page loaded from the DB. Note: the initial
+	// render reads timestamps as Go's default time.Time.String() via
+	// the sqlite scan, which is uglier. Matching it would mean
+	// inheriting the ugliness; we use the clean format instead and
+	// accept the minor visual inconsistency on the first 100 rows.
+	if a.Bus != nil {
+		a.Bus.Publish(AuditEntry{
+			Timestamp: now.UTC().Format("2006-01-02 15:04:05 UTC"),
+			Username:  username,
+			Action:    action,
+			TargetID:  targetID,
+			SourceIP:  sourceIP,
+			UserAgent: userAgent,
+		})
 	}
 }
 
