@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: whatsmeow-api
+  title: slimwhats
   version: 0.1.0
   description: |
     REST API on top of go.mau.fi/whatsmeow. Multi-instance WhatsApp
@@ -620,7 +620,7 @@ components:
     apiKey:
       type: http
       scheme: bearer
-      bearerFormat: "whatsmeow-api-key (sk_live_...)"
+      bearerFormat: "slimwhats-key (sk_live_...)"
 
   parameters:
     InstanceId:

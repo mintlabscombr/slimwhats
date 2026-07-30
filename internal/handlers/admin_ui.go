@@ -69,7 +69,7 @@ const adminCSS = `
 // Each page template includes it via the chrome funcMap.
 const chromeHeader = `
 <header>
-  <h1><a href="/admin/">whatsmeow-api</a></h1>
+  <h1><a href="/admin/">slimwhats</a></h1>
   <div class="nav">
     <a href="/admin/">Instances</a>
     <a href="/admin/audit">Audit</a>
@@ -94,7 +94,7 @@ func chromeFunc(title string, body template.HTML) (template.HTML, error) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>whatsmeow-api — %s</title>
+<title>slimwhats — %s</title>
 <style>%s</style>
 </head>
 <body>
