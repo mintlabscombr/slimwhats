@@ -13,15 +13,18 @@ import (
 	"github.com/mauroneto/whatsmeow-api/internal/instance"
 )
 
-// EventsHandler streams whatsmeow events to the browser over Server-Sent
-// Events. The browser opens an `EventSource` on /admin/api/events; this
-// handler subscribes to the manager, filters the relevant event types,
-// and writes them as SSE messages.
+// EventsHandler streams whatsmeow events AND audit log entries to
+// the browser over Server-Sent Events. The browser opens an
+// `EventSource` on /admin/api/events; this handler subscribes to
+// the manager (for whatsmeow events) and to the AuditBus (for
+// audit entries), filters the relevant event types, and writes
+// them as SSE messages.
 //
 // Wire format (one SSE message per emitted event):
 //
 //	event: status\ndata: {"instance_id":"abc","status":"connected",...}\n\n
 //	event: qr_update\ndata: {"instance_id":"abc"}\n\n
+//	event: audit_entry\ndata: {"timestamp":"2026-07-30 ...","username":...}\n\n
 //	: ping\n\n                       (heartbeat comment every 30s)
 //
 // Filtered event types (everything else is dropped):
@@ -30,6 +33,11 @@ import (
 //	PairError, PairPasskeyError, PairSuccess,
 //	Message (so last_seen_at updates when a message arrives),
 //	QR (so the pairing screen can re-fetch the latest PNG — US-041).
+//
+// Audit entries (F-04): every entry written by AuditLoggerImpl.Log
+// is also Published on the AuditBus. The bus is per-process; the
+// SSE handler Subscribes once per open connection. The bus drops
+// entries for slow consumers instead of blocking the audit writer.
 //
 // Per-connection subscription: each open SSE connection gets its own
 // AddEventHandler on every managed whatsmeow client. When the client
@@ -41,7 +49,7 @@ import (
 // watchdog. A slow client (network jam, page hidden, etc.) can't wedge
 // the event source — the connection is dropped and the subscription
 // is cleaned up.
-func EventsHandler(mgr *instance.Manager) gin.HandlerFunc {
+func EventsHandler(mgr *instance.Manager, bus *AuditBus) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Set SSE headers BEFORE writing anything — gin won't let us
 		// change the status code or content type after the first write.
@@ -84,6 +92,13 @@ func EventsHandler(mgr *instance.Manager) gin.HandlerFunc {
 		})
 		defer cancelSub()
 
+		// Subscribe to the audit bus (best-effort; bus may be nil
+		// in tests or in the rare deployment that disables the
+		// audit stream — the handler still works, just without
+		// audit_entry events).
+		auditCh, cancelAudit := bus.Subscribe()
+		defer cancelAudit()
+
 		// Heartbeat: a 30s SSE comment keeps the TCP connection warm
 		// across proxies and load balancers. The browser ignores
 		// comment lines (they start with ':').
@@ -97,6 +112,17 @@ func EventsHandler(mgr *instance.Manager) gin.HandlerFunc {
 				return
 			case <-ticker.C:
 				if !safeWrite("ping", nil) {
+					return
+				}
+			case e, ok := <-auditCh:
+				// Channel closed by the bus (server shutdown or
+				// explicit cancel). Not an error — just stop
+				// reading and let the rest of the loop drain.
+				if !ok {
+					auditCh = nil // disable this case
+					continue
+				}
+				if !safeWrite("audit_entry", e) {
 					return
 				}
 			}

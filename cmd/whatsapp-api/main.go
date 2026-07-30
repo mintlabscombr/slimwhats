@@ -335,7 +335,13 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 		ManagerUsername: cfg.ManagerUsername,
 		SecureCookie:    false, // TODO: detect via X-Forwarded-Proto or env flag
 	}
-	audit := handlers.NewAuditLogger(db)
+	// F-04 / US-002: per-process audit bus. The logger publishes every
+	// Log call to the bus; the SSE handler subscribes and pipes entries
+	// out as `audit_entry` SSE events. One bus instance is shared so
+	// the bus reference the logger holds is the same one the SSE
+	// handler reads from.
+	auditBus := handlers.NewAuditBus()
+	audit := handlers.NewAuditLogger(db, auditBus)
 	// LifecycleDeps is shared by the HTML form-dispatcher and the
 	// JSON API endpoints. Declared early so the HTML group can use
 	// it for its routes too.
@@ -416,11 +422,14 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminAPI.GET("/instances/:id/qr", handlers.InstanceQRHandler(mgr))
 	adminAPI.GET("/instances/:id/status", handlers.InstanceStatusHandler(mgr))
 	adminAPI.GET("/instances/:id/logs", handlers.ListInstanceLogsHandler(instanceStore))
-	// Live event stream (F-02/US-039). Browser opens an EventSource
-	// here; the server pushes `status` and `qr_update` events as
-	// whatsmeow state changes. Stays under SessionMiddleware so the
-	// event stream isn't publicly readable.
-	adminAPI.GET("/events", handlers.EventsHandler(mgr))
+	// Live event stream (F-02/US-039 + F-04). Browser opens an
+	// EventSource here; the server pushes `status`, `qr_update`, and
+	// `audit_entry` events as whatsmeow state changes and audit
+	// entries are written. Stays under SessionMiddleware so the
+	// event stream isn't publicly readable. The audit bus is
+	// per-process; passing it here lets the handler subscribe to
+	// live entries written by AuditLoggerImpl.Log.
+	adminAPI.GET("/events", handlers.EventsHandler(mgr, auditBus))
 	adminAPI.PUT("/instances/:id/webhook", handlers.SetWebhookHandler(instanceStore))
 	adminAPI.GET("/instances/:id/webhook-deliveries", handlers.ListWebhookDeliveriesHandler(db))
 
