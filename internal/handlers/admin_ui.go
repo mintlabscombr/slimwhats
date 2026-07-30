@@ -86,8 +86,13 @@ func chromeFunc(title string, body template.HTML) (template.HTML, error) {
 }
 
 // adminFuncs is the FuncMap shared by all admin page templates.
+// `chrome` wraps the body in the full admin layout. `message`
+// resolves an error code (see errors.go) to its user-friendly
+// English text — used by templates that render an inline error
+// banner without a URL round-trip.
 var adminFuncs = template.FuncMap{
-	"chrome": chromeFunc,
+	"chrome":  chromeFunc,
+	"message": Message,
 }
 
 // adminListTmpl is the home page (US-019). Calls {{chrome .Body "Title"}}
