@@ -1,0 +1,19 @@
+/*
+ * Tailwind input — slimwhats manager UI.
+ *
+ * US-032 wires up the build pipeline. US-033 fills in the design tokens
+ * (tailwind.config) and the @layer components below. For now this file
+ * is just a valid Tailwind input so `make css-build` produces a
+ * non-empty app.css (preflight + reset + the empty components layer).
+ *
+ * Tailwind docs: https://tailwindcss.com/docs/installation
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  /* Filled in by US-033 — design tokens + component classes
+   * (.btn, .card, .badge, .alert, .input, .label, .muted). */
+}

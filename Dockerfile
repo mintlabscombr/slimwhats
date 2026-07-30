@@ -9,7 +9,22 @@
 #             -v whatsmeow-data:/data \
 #             whatsmeow-api
 
-# --- Builder -----------------------------------------------------------------
+# --- CSS builder --------------------------------------------------------------
+# Generates api/internal/handlers/static/app.css from src.css using the
+# Tailwind standalone CLI. The output is copied into the Go source tree
+# before `go build` so `//go:embed` picks it up. The Tailwind binary is
+# not shipped in the runtime image.
+FROM alpine:3.20 AS css-builder
+ARG TAILWIND_VERSION=v3.4.17
+RUN apk add --no-cache curl ca-certificates \
+    && curl -fsSL -o /usr/local/bin/tailwindcss \
+       https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-x64 \
+    && chmod +x /usr/local/bin/tailwindcss
+WORKDIR /css
+COPY api/internal/handlers/static/src.css ./src.css
+RUN tailwindcss -i ./src.css -o ./app.css --minify
+
+# --- Builder ------------------------------------------------------------------
 FROM golang:1.25-alpine AS builder
 WORKDIR /src
 
@@ -19,6 +34,11 @@ RUN go mod download
 
 # Copy the rest
 COPY api/ ./
+
+# Inject the pre-built CSS so `//go:embed` finds a non-empty app.css.
+# src.css is the human-edited source; app.css is the generated output
+# (gitignored in the repo, produced here from the CSS stage).
+COPY --from=css-builder /css/app.css ./internal/handlers/static/app.css
 
 # Build static binary (CGO off so we can use distroless/static)
 ENV CGO_ENABLED=0 GOOS=linux

@@ -1,10 +1,47 @@
-.PHONY: build run dev stop test lint clean docker docker-run
+.PHONY: build run dev stop test lint clean docker docker-run setup css-build css-watch
 
 GO ?= go
 BIN := bin/whatsapp-api
 AIR  ?= $(shell command -v air 2>/dev/null || echo $(GOPATH)/bin/air)
 
-build:
+# --- Tailwind (F-02 / US-032) -------------------------------------------------
+# Standalone CLI binary — no Node toolchain required. Downloaded by `make setup`.
+# Version pinned for reproducibility; bump on a deliberate upgrade.
+TAILWIND_VERSION ?= v3.4.17
+TAILWIND_BIN     := bin/tailwindcss
+# Map uname output → Tailwind release asset suffix (macos-x64, linux-arm64, …)
+# uname -s  → "Darwin" / "Linux"; Tailwind uses "macos" for the former.
+# uname -m  → "x86_64" / "aarch64" / "arm64" / "armv7l"; mapped to Tailwind's
+#             "x64" / "arm64" / "arm64" / "armv7" suffixes.
+TAILWIND_PLATFORM := $(shell uname -s | tr A-Z a-z | sed 's/^darwin$$/macos/')-$(shell uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/;s/armv7l/armv7/')
+
+CSS_SRC := internal/handlers/static/src.css
+CSS_OUT := internal/handlers/static/app.css
+
+setup: $(TAILWIND_BIN)
+
+$(TAILWIND_BIN):
+	@echo "Downloading tailwindcss $(TAILWIND_VERSION) for $(TAILWIND_PLATFORM)..."
+	@mkdir -p bin
+	@curl -fsSL -o $(TAILWIND_BIN) \
+		https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND_VERSION)/tailwindcss-$(TAILWIND_PLATFORM)
+	@chmod +x $(TAILWIND_BIN)
+	@$(TAILWIND_BIN) --help >/dev/null
+	@echo "Installed $$($(TAILWIND_BIN) --help 2>&1 | head -1)"
+
+css-build: $(TAILWIND_BIN)
+	@mkdir -p $$(dirname $(CSS_OUT))
+	$(TAILWIND_BIN) -i $(CSS_SRC) -o $(CSS_OUT) --minify
+
+# Dev-only: rebuild CSS on every save. Run in a parallel terminal next to
+# `make dev` for live CSS reload; `make dev` itself runs a one-shot
+# `make css-build` via the air pre_cmd (so even without css-watch the
+# embedded CSS is fresh on every Go change).
+css-watch: $(TAILWIND_BIN)
+	$(TAILWIND_BIN) -i $(CSS_SRC) -o $(CSS_OUT) --watch
+
+# --- Build --------------------------------------------------------------------
+build: css-build
 	$(GO) build -o $(BIN) ./cmd/whatsapp-api
 
 run: build
@@ -34,11 +71,17 @@ stop:
 		kill $$PIDS 2>/dev/null || true; \
 	fi
 
-# Hot-reload dev mode. Requires `air` (go install github.com/air-verse/air@latest).
-# On any change to cmd/ internal/ migrations/, air rebuilds and restarts.
+# Hot-reload dev mode. Requires `air` (go install github.com/air-verse/air@latest)
+# and the Tailwind binary (`make setup` to download). For live CSS changes
+# on save, also run `make css-watch` in a parallel terminal — the air
+# pre_cmd only rebuilds CSS on Go changes.
 dev:
 	@if [ ! -x "$(AIR)" ]; then \
 		echo "air not found. Install with: go install github.com/air-verse/air@latest"; \
+		exit 1; \
+	fi
+	@if [ ! -x "$(TAILWIND_BIN)" ]; then \
+		echo "tailwindcss not found. Run: make setup"; \
 		exit 1; \
 	fi
 	$(AIR) -c .air.toml
@@ -63,3 +106,4 @@ docker-run: docker
 clean:
 	rm -rf bin data
 	rm -f *.db *.db-journal
+	rm -f internal/handlers/static/app.css

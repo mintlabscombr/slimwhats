@@ -1,26 +1,34 @@
 # air configuration — hot reload for the whatsmeow-api service.
 # Run with: `air` (or `make dev` from the api/ dir).
 #
-# Watches Go source + SQL migrations + OpenAPI YAML. On any change,
-# stops the running binary (SIGTERM, with 500ms grace), rebuilds,
+# Watches Go source + SQL migrations + OpenAPI YAML + CSS sources. On any
+# change, stops the running binary (SIGTERM, with 500ms grace), rebuilds,
 # and restarts. The binary handles SIGTERM via the explicit graceful
 # shutdown sequence (HTTP -> dispatcher -> clients -> DB).
+#
+# The `pre_cmd` rebuilds the Tailwind output (`internal/handlers/static/
+# app.css`) before every Go compile so `//go:embed` always picks up the
+# latest CSS without a manual `make css-build`. The generated app.css is
+# excluded from the watcher to prevent a rebuild loop.
 
 # Build command: produce the binary in ./bin/.
 [build]
   args_bin = []
   bin = "./bin/whatsapp-api"
   cmd = "go build -o ./bin/whatsapp-api ./cmd/whatsapp-api"
+  pre_cmd = ["make -s css-build"]
   delay = 1000
   entrypoint = ["./bin/whatsapp-api"]
   exclude_dir = ["assets", "bin", "data", "tmp", "vendor", "test"]
   exclude_file = []
-  exclude_regex = ["_test\\.go", ".*\\.db$", ".*\\.db-wal$", ".*\\.db-shm$"]
+  # Exclude the generated CSS to avoid a rebuild loop when `pre_cmd`
+  # rewrites app.css after a Go change triggers a rebuild.
+  exclude_regex = ["_test\\.go", ".*\\.db$", ".*\\.db-wal$", ".*\\.db-shm$", ".*/static/app\\.css$"]
   exclude_unchanged = true
   follow_symlink = false
   full_bin = ""
   include_dir = ["cmd", "internal", "migrations"]
-  include_ext = ["go", "tpl", "tmpl", "html", "yaml", "yml", "sql"]
+  include_ext = ["go", "tpl", "tmpl", "html", "yaml", "yml", "sql", "css"]
   include_file = []
   kill_delay = 500
   log = "build-errors.log"

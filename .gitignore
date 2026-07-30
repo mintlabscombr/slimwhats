@@ -7,3 +7,6 @@ config.local.yaml
 # air (hot-reload) artifacts
 tmp/
 build-errors.log
+
+# Tailwind generated CSS (F-02 / US-032)
+internal/handlers/static/app.css
