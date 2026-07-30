@@ -202,12 +202,14 @@ var adminDetailTmpl = template.Must(
     {{if .Instance.WebhookSecret}}
     <div class="flex gap-2 items-center">
       <input id="whsec" type="password" value="{{.Instance.WebhookSecret}}" readonly class="flex-1 font-mono text-sm" onclick="this.select()">
-      <button class="btn secondary" type="button" onclick="var i=document.getElementById('whsec');var b=document.getElementById('whsec-btn');if(i.type==='password'){i.type='text';b.textContent='Hide'}else{i.type='password';b.textContent='Show'}" id="whsec-btn">Show</button>
+      <button class="btn secondary whitespace-nowrap" type="button" onclick="var i=document.getElementById('whsec');var b=document.getElementById('whsec-btn');if(i.type==='password'){i.type='text';b.textContent='Hide secret'}else{i.type='password';b.textContent='Show secret'}" id="whsec-btn">Show secret</button>
     </div>
     <label for="wh_secret" class="mt-3">New secret (optional)</label>
     <input id="wh_secret" name="secret" type="password" placeholder="leave blank to keep current">
     {{else}}
+    <label for="wh_secret">Set secret</label>
     <input id="wh_secret" name="secret" type="password" placeholder="any non-empty value">
+    <p class="muted text-sm">The show/hide button appears after you save a secret.</p>
     {{end}}
     <button class="btn" type="submit">Save</button>
   </form>
@@ -219,9 +221,9 @@ var adminDetailTmpl = template.Must(
   {{if .Instance.APIKey}}
   <div class="flex gap-2 items-center">
     <input id="apikey" type="password" value="{{.Instance.APIKey}}" readonly class="flex-1 font-mono text-sm" onclick="this.select()">
-    <button class="btn secondary" type="button" onclick="var i=document.getElementById('apikey');var b=document.getElementById('apikey-btn');if(i.type==='password'){i.type='text';b.textContent='Hide'}else{i.type='password';b.textContent='Show'}" id="apikey-btn">Show</button>
+    <button class="btn secondary whitespace-nowrap" type="button" onclick="var i=document.getElementById('apikey');var b=document.getElementById('apikey-btn');if(i.type==='password'){i.type='text';b.textContent='Hide secret'}else{i.type='password';b.textContent='Show secret'}" id="apikey-btn">Show secret</button>
   </div>
-  <p class="muted mt-2">Click the field to select all, or click <b>Show</b> to read it directly. Use <b>Rotate</b> below to generate a new key (the old one dies immediately).</p>
+  <p class="muted mt-2">Click the field to select all, or click <b>Show secret</b> to read it directly. Use <b>Rotate</b> below to generate a new key (the old one dies immediately).</p>
   {{else}}
   <p class="muted">No API key set yet. Click <b>Rotate</b> below to generate one.</p>
   {{end}}
