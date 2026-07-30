@@ -211,7 +211,7 @@ func (d *Dispatcher) attempt(j job) (bool, int, string) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Webhook-Secret", j.secret)
 	req.Header.Set("X-Webhook-Event", j.event.Event)
-	req.Header.Set("User-Agent", "whatsmeow-api/0.1")
+	req.Header.Set("User-Agent", "slimwhats/1.0")
 	req.Header.Set("X-Webhook-Delivery-Id", j.deliveryID)
 	req.Header.Set("X-Webhook-Attempt", strconv.Itoa(currentAttempt()))
 
