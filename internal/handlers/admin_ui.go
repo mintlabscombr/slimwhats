@@ -10,7 +10,6 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -136,20 +135,24 @@ var adminListTmpl = template.Must(
 </div>{{end}}`),
 )
 
-// adminNewTmpl is the create form (US-020).
+// adminNewTmpl is the create form (US-020). F-03 / US-003: the
+// form now re-renders on validation error with the user's typed
+// values preserved (via the `Form` struct in the template data)
+// and the error rendered via the `message` funcMap (not inline
+// English). No more `?error=Name+is+required.` in the URL.
 var adminNewTmpl = template.Must(
 	template.New("new").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card max-w-[540px]">
   <h2>New instance</h2>
-  {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+  {{if .Form.ErrorCode}}<div class="alert error">{{message .Form.ErrorCode}}</div>{{end}}
   <form method="POST" action="/admin/instances/new">
     <label for="name">Name</label>
-    <input id="name" name="name" required maxlength="64" placeholder="e.g. Sales BR">
+    <input id="name" name="name" required maxlength="64" placeholder="e.g. Sales BR" value="{{.Form.Name}}">
     <label for="api_key">API key (optional, leave blank to auto-generate)</label>
-    <input id="api_key" name="api_key" placeholder="sk_live_...">
+    <input id="api_key" name="api_key" placeholder="sk_live_..." value="{{.Form.APIKey}}">
     <label for="webhook_url">Webhook URL (optional)</label>
-    <input id="webhook_url" name="webhook_url" type="url" placeholder="https://example.com/wh">
+    <input id="webhook_url" name="webhook_url" type="url" placeholder="https://example.com/wh" value="{{.Form.WebhookURL}}">
     <label for="webhook_secret">Webhook secret (required if URL is set)</label>
-    <input id="webhook_secret" name="webhook_secret" type="password" placeholder="any non-empty value">
+    <input id="webhook_secret" name="webhook_secret" type="password" placeholder="any non-empty value" value="{{.Form.WebhookSecret}}">
     <p class="muted text-sm">If you set a webhook URL, you must also set a secret (both can be changed later on the instance detail page).</p>
     <div class="row mt-2">
       <button class="btn" type="submit">Create</button>
@@ -359,42 +362,88 @@ func AdminListPage(db *sql.DB) gin.HandlerFunc {
 // AdminNewPage handles GET /admin/instances/new.
 func AdminNewPage() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		renderAdmin(adminNewTmpl, "New instance", gin.H{
-			"Error": c.Query("error"),
-		}, c)
+		// Empty Form — first visit has no typed values. The
+		// `ErrorCode` is "" so the alert block doesn't render.
+		renderNewInstance(c, &NewInstanceForm{})
 	}
 }
 
+// renderNewInstance is the shared render path for the "New instance"
+// page (GET and POST re-render). Keeps the template data shape
+// in one place — `Form` is always a *NewInstanceForm, never a
+// gin.H, so the template can safely dot into .Form.*.
+func renderNewInstance(c *gin.Context, form *NewInstanceForm) {
+	renderAdmin(adminNewTmpl, "New instance", gin.H{"Form": form}, c)
+}
+
+// NewInstanceForm is the typed input + error state for the new-
+// instance template. Carries the user's typed values across a
+// re-render so they don't have to retype after a validation error
+// (F-03 / US-003). The error code is a short snake_case string
+// resolved by the `message` funcMap; an empty string means "no
+// error" and the alert block is suppressed.
+type NewInstanceForm struct {
+	Name          string
+	APIKey        string
+	WebhookURL    string
+	WebhookSecret string
+	ErrorCode     string
+}
+
 // AdminNewSubmit handles POST /admin/instances/new (the form on the
-// "New instance" page). Creates the instance via the store, then
-// redirects to the detail page — the detail page renders the
-// show/hide API-key field, so the operator sees the new key right
-// there. On validation failure, redirects back to the form with
-// ?error=... so the page re-renders with a red banner above the
-// inputs (mirrors the form-dispatcher pattern from the lifecycle /
-// api-key / delete handlers).
+// "New instance" page). On validation or store failure, RE-RENDERS
+// the form with the typed values preserved and an error code in
+// the template data (F-03 / US-003 — no more redirect-with-?error=,
+// no more wiping the form on a typo). On success, creates the
+// instance, kicks the manager so the whatsmeow client is loaded
+// and the QR is visible on the detail page (F-03 / US-008), then
+// redirects to the detail page (no `?new_api_key=...` — F-03 /
+// US-007 dropped the banner; the show/hide field on the detail
+// page reads from the DB).
 //
 // Webhook URL + secret are accepted on this form too (both optional,
-// but if one is set the other must be too — validated inside
-// store.Create). Lets the operator wire a webhook at create time
-// instead of going through the detail page afterwards.
-//
-// F-03 / US-008: after a successful create, the manager is asked
-// to load + start the whatsmeow client for the new instance. The
-// detail page then renders the QR immediately, so the operator
-// can scan and pair without having to click a "start" button or
-// refresh. The call is fire-and-forget — a failure to load/start
-// is logged but does NOT fail the create (the row is still valid).
+// but if one is set the other must be too — validated locally so
+// we never even call store.Create with a broken pair).
 func AdminNewSubmit(store *instance.Store, mgr *instance.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		name := strings.TrimSpace(c.PostForm("name"))
 		apiKey := strings.TrimSpace(c.PostForm("api_key"))
 		webhookURL := strings.TrimSpace(c.PostForm("webhook_url"))
 		webhookSecret := strings.TrimSpace(c.PostForm("webhook_secret"))
-		if name == "" {
-			c.Redirect(http.StatusFound, "/admin/instances/new?error=Name+is+required.")
+
+		// Build a Form with the typed values so any re-render
+		// preserves them. Cheap, even on success — we throw it
+		// away after the redirect.
+		form := &NewInstanceForm{
+			Name:          name,
+			APIKey:        apiKey,
+			WebhookURL:    webhookURL,
+			WebhookSecret: webhookSecret,
+		}
+
+		// Local validation: name required, name length, webhook
+		// pair-or-neither. The store does its own pair check
+		// too, but doing it here means a half-typed webhook
+		// config never makes it to the DB (we'd otherwise fail
+		// at INSERT time and have to map the store's generic
+		// error to a code).
+		code := ""
+		switch {
+		case name == "":
+			code = ErrCodeNameRequired
+		case len(name) > 64:
+			code = ErrCodeNameTooLong
+		case webhookURL != "" && webhookSecret == "":
+			code = ErrCodeSecretRequired
+		case webhookSecret != "" && webhookURL == "":
+			code = ErrCodeWebhookURLEmpty
+		}
+		if code != "" {
+			form.ErrorCode = code
+			renderNewInstance(c, form)
 			return
 		}
+
 		inst, plaintext, err := store.Create(instance.CreateInput{
 			Name:          name,
 			APIKey:        apiKey,
@@ -402,11 +451,18 @@ func AdminNewSubmit(store *instance.Store, mgr *instance.Manager) gin.HandlerFun
 			WebhookSecret: webhookSecret,
 		})
 		if err != nil {
+			// Map store errors to error codes. Anything we don't
+			// recognise falls through to the internal-error code
+			// (the message map returns a friendly fallback) rather
+			// than leaking the raw err.Error() into the UI.
 			if errors.Is(err, instance.ErrNameTaken) {
-				c.Redirect(http.StatusFound, "/admin/instances/new?error=An+instance+with+this+name+already+exists.")
-				return
+				code = ErrCodeNameTaken
+			} else {
+				slog.Warn("AdminNewSubmit: store.Create failed", "err", err)
+				code = ErrCodeInternal
 			}
-			c.Redirect(http.StatusFound, "/admin/instances/new?error="+url.QueryEscape(err.Error()))
+			form.ErrorCode = code
+			renderNewInstance(c, form)
 			return
 		}
 		// F-03 / US-008: kick the manager so the whatsmeow client is
