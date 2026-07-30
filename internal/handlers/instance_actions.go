@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -180,9 +180,9 @@ func startsWith(s, prefix string) bool {
 // The underlying API is PUT /admin/api/instances/{id}/webhook
 // (used by external clients) but HTML forms can only POST, so this
 // is a thin wrapper that reads the form values, validates, calls
-// store.SetWebhook, and redirects back to the detail page with a
-// status message in the query string. Same pattern as
-// LifecycleActionHandler / APIKeyFormActionHandler.
+// store.SetWebhook, and re-renders the detail page with the typed
+// values preserved + a status message in the alert slot
+// (F-03 / US-004). No more ?msg=...&msg_class=... in the URL.
 //
 // "New secret" semantics: the form submits an empty secret when the
 // operator only wants to update the URL. In that case we keep the
@@ -190,24 +190,34 @@ func startsWith(s, prefix string) bool {
 // re-enter it (and so we don't accidentally null the secret out
 // after a URL-only edit). The "clear" case is the original behavior:
 // both URL and new-secret blank → SetWebhook("", "").
-func WebhookFormActionHandler(store *instance.Store) gin.HandlerFunc {
+func WebhookFormActionHandler(db *sql.DB, mgr *instance.Manager, store *instance.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		webhookURL := c.PostForm("url")
 		secret := c.PostForm("secret")
 
+		// The form to re-render with. On error we want the
+		// operator's typed values back; on success we still pass
+		// the form (with the saved values) so the template
+		// shows what's now in the DB.
+		form := &WebhookForm{URL: webhookURL, Secret: secret}
+
 		var msg, msgClass string
+		code := ""
 		if webhookURL == "" && secret == "" {
 			// Clear
 			if err := store.SetWebhook(id, "", ""); err != nil {
-				msg, msgClass = "Clear failed: "+err.Error(), "error"
+				slog.Warn("WebhookFormActionHandler: clear failed", "id", id, "err", err)
+				code = ErrCodeInternal
 			} else {
 				msg, msgClass = "Webhook cleared.", "ok"
 			}
 		} else {
 			// Validate URL
-			if !isValidWebhookURL(webhookURL) {
-				msg, msgClass = "URL must start with https:// (or http://localhost for dev).", "error"
+			if webhookURL == "" {
+				code = ErrCodeURLRequired
+			} else if !isValidWebhookURL(webhookURL) {
+				code = ErrCodeURLInvalid
 			} else {
 				// If new secret is blank, keep the existing one. If
 				// none exists yet, require a non-empty secret on
@@ -215,16 +225,18 @@ func WebhookFormActionHandler(store *instance.Store) gin.HandlerFunc {
 				if secret == "" {
 					_, existing, err := store.LoadWebhookSecret(id)
 					if err != nil {
-						msg, msgClass = "Read failed: "+err.Error(), "error"
+						slog.Warn("WebhookFormActionHandler: load secret failed", "id", id, "err", err)
+						code = ErrCodeInternal
 					} else if existing == "" {
-						msg, msgClass = "Secret is required on first save.", "error"
+						code = ErrCodeSecretRequired
 					} else {
 						secret = existing
 					}
 				}
-				if msg == "" {
+				if code == "" {
 					if err := store.SetWebhook(id, webhookURL, secret); err != nil {
-						msg, msgClass = "Save failed: "+err.Error(), "error"
+						slog.Warn("WebhookFormActionHandler: save failed", "id", id, "err", err)
+						code = ErrCodeInternal
 					} else {
 						msg, msgClass = "Webhook saved.", "ok"
 					}
@@ -232,10 +244,14 @@ func WebhookFormActionHandler(store *instance.Store) gin.HandlerFunc {
 			}
 		}
 
-		// Redirect-after-POST: the template renders the message
-		// from the query string via .ActionResult / .ActionResultClass.
-		c.Redirect(http.StatusFound,
-			"/admin/instances/"+id+"?msg="+url.QueryEscape(msg)+"&msg_class="+msgClass)
+		// On error, resolve the code to its English message and
+		// re-render the detail page with the typed values
+		// preserved. On success, re-render with the success
+		// banner. Either way: no redirect, no query string.
+		if code != "" {
+			msg, msgClass = Message(code), "error"
+		}
+		renderInstanceDetail(c, db, mgr, form, msg, msgClass)
 	}
 }
 

@@ -209,7 +209,7 @@ var adminDetailTmpl = template.Must(
   <h2>Webhook</h2>
   <form method="POST" action="/admin/instances/{{.Instance.ID}}/webhook">
     <label for="wh_url">URL</label>
-    <input id="wh_url" name="url" placeholder="https://example.com/wh" value="{{.Instance.WebhookURL}}">
+    <input id="wh_url" name="url" placeholder="https://example.com/wh" value="{{if .WebhookForm}}{{.WebhookForm.URL}}{{else}}{{.Instance.WebhookURL}}{{end}}">
     <label>Current secret</label>
     {{if .Instance.WebhookSecret}}
     <div class="flex gap-2 items-center">
@@ -217,10 +217,10 @@ var adminDetailTmpl = template.Must(
       <button class="btn secondary whitespace-nowrap" type="button" onclick="var i=document.getElementById('whsec');var b=document.getElementById('whsec-btn');if(i.type==='password'){i.type='text';b.textContent='Hide secret'}else{i.type='password';b.textContent='Show secret'}" id="whsec-btn">Show secret</button>
     </div>
     <label for="wh_secret" class="mt-3">New secret (optional)</label>
-    <input id="wh_secret" name="secret" type="password" placeholder="leave blank to keep current">
+    <input id="wh_secret" name="secret" type="password" placeholder="leave blank to keep current" value="{{if .WebhookForm}}{{.WebhookForm.Secret}}{{end}}">
     {{else}}
     <label for="wh_secret">Set secret</label>
-    <input id="wh_secret" name="secret" type="password" placeholder="any non-empty value">
+    <input id="wh_secret" name="secret" type="password" placeholder="any non-empty value" value="{{if .WebhookForm}}{{.WebhookForm.Secret}}{{end}}">
     <p class="muted text-sm">The show/hide button appears after you save a secret.</p>
     {{end}}
     <button class="btn" type="submit">Save</button>
@@ -495,65 +495,99 @@ func AdminNewSubmit(store *instance.Store, mgr *instance.Manager) gin.HandlerFun
 // The user just refreshes the page (Cmd+R) to get a new QR.
 func AdminDetailPage(db *sql.DB, mgr *instance.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id := c.Param("id")
-		v, err := getInstanceView(db, id)
-		if err != nil {
-			c.String(http.StatusInternalServerError, "load failed: %v", err)
-			return
-		}
-		if v == nil {
-			c.String(http.StatusNotFound, "not found")
-			return
-		}
-		// Format times
-		if v.ConnectedAt != "" {
-			t, _ := time.Parse("2006-01-02 15:04:05.999999-07:00", v.ConnectedAt)
-			if !t.IsZero() {
-				v.ConnectedAt = t.UTC().Format("2006-01-02 15:04 MST")
-			}
-		}
-		if v.LastSeenAt != "" {
-			t, _ := time.Parse("2006-01-02 15:04:05.999999-07:00", v.LastSeenAt)
-			if !t.IsZero() {
-				v.LastSeenAt = t.UTC().Format("2006-01-02 15:04 MST")
-			}
-		}
-		if v.APISetAt != "" {
-			t, _ := time.Parse("2006-01-02 15:04:05.999999-07:00", v.APISetAt)
-			if !t.IsZero() {
-				v.APISetAt = t.UTC().Format("2006-01-02 15:04 MST")
-			}
-		}
-		_ = v.CreatedAt
-		_ = v.UpdatedAt
-
-		// Auto-fetch a fresh QR if the instance isn't paired yet.
-		// Skip when already paired (the QR block hides itself via
-		// {{if .QR}} in the template).
-		//
-		// IMPORTANT: we check the *client's* logged-in state, not the
-		// DB status. The DB status can drift (e.g. a Disconnected event
-		// fires during a network blip while the client is in the middle
-		// of pairing and gets re-stuck in "connected, not logged in"
-		// state). When that happens, the DB says "disconnected" but
-		// the client is actively waiting for a QR scan — exactly the
-		// state where the operator needs to see the QR. fetchQRPNG
-		// itself is a no-op when the client is logged in, so this
-		// safe to call whenever we don't have a positive signal that
-		// the device is paired.
-		var qrPNG template.URL
-		cli := mgr.Get(id)
-		if cli != nil && !cli.IsLoggedIn() {
-			qrPNG = fetchQRPNG(mgr, id)
-		}
-
-		renderAdmin(adminDetailTmpl, v.Name, gin.H{
-			"Instance":          v,
-			"ActionResult":      c.Query("msg"),
-			"ActionResultClass": c.Query("msg_class"),
-			"QR":                qrPNG,
-		}, c)
+		// F-03 / US-004: pass an empty WebhookForm so the template's
+		// webhook <input>s render with the DB-loaded values, not the
+		// last typed (potentially invalid) values. msg/msg_class are
+		// still read from the query string for back-compat with any
+		// external links; F-03 form-dispatchers set them via the
+		// renderInstanceDetail helper instead of a redirect.
+		renderInstanceDetail(c, db, mgr, &WebhookForm{}, c.Query("msg"), c.Query("msg_class"))
 	}
+}
+
+// renderInstanceDetail is the shared render path for the instance
+// detail page. Used by AdminDetailPage (GET) AND by the form
+// dispatchers (webhook / api-key rotate / lifecycle) when they
+// re-render instead of redirect-after-POST (F-03 / US-004..006).
+//
+// webhookForm is the typed input from the webhook form — non-nil
+// so the template can always dot into .WebhookForm.* safely. Empty
+// on GET and on most re-renders; populated with the user's typed
+// values when the webhook form errored.
+//
+// actionMsg / msgClass are the optional green/red banner messages
+// (existing F-02 ActionResult pattern). US-004..US-006 resolve
+// error codes via the `message` funcMap and set these as the
+// resolved English text — the URL stays clean.
+func renderInstanceDetail(c *gin.Context, db *sql.DB, mgr *instance.Manager, webhookForm *WebhookForm, actionMsg, msgClass string) {
+	id := c.Param("id")
+	v, err := getInstanceView(db, id)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "load failed: %v", err)
+		return
+	}
+	if v == nil {
+		c.String(http.StatusNotFound, "not found")
+		return
+	}
+	// Format times
+	if v.ConnectedAt != "" {
+		t, _ := time.Parse("2006-01-02 15:04:05.999999-07:00", v.ConnectedAt)
+		if !t.IsZero() {
+			v.ConnectedAt = t.UTC().Format("2006-01-02 15:04 MST")
+		}
+	}
+	if v.LastSeenAt != "" {
+		t, _ := time.Parse("2006-01-02 15:04:05.999999-07:00", v.LastSeenAt)
+		if !t.IsZero() {
+			v.LastSeenAt = t.UTC().Format("2006-01-02 15:04 MST")
+		}
+	}
+	if v.APISetAt != "" {
+		t, _ := time.Parse("2006-01-02 15:04:05.999999-07:00", v.APISetAt)
+		if !t.IsZero() {
+			v.APISetAt = t.UTC().Format("2006-01-02 15:04 MST")
+		}
+	}
+	_ = v.CreatedAt
+	_ = v.UpdatedAt
+
+	// Auto-fetch a fresh QR if the instance isn't paired yet.
+	// Skip when already paired (the QR block hides itself via
+	// {{if .QR}} in the template).
+	//
+	// IMPORTANT: we check the *client's* logged-in state, not the
+	// DB status. The DB status can drift (e.g. a Disconnected event
+	// fires during a network blip while the client is in the middle
+	// of pairing and gets re-stuck in "connected, not logged in"
+	// state). When that happens, the DB says "disconnected" but
+	// the client is actively waiting for a QR scan — exactly the
+	// state where the operator needs to see the QR. fetchQRPNG
+	// itself is a no-op when the client is logged in, so this
+	// safe to call whenever we don't have a positive signal that
+	// the device is paired.
+	var qrPNG template.URL
+	cli := mgr.Get(id)
+	if cli != nil && !cli.IsLoggedIn() {
+		qrPNG = fetchQRPNG(mgr, id)
+	}
+
+	renderAdmin(adminDetailTmpl, v.Name, gin.H{
+		"Instance":          v,
+		"ActionResult":      actionMsg,
+		"ActionResultClass": msgClass,
+		"QR":                qrPNG,
+		"WebhookForm":       webhookForm,
+	}, c)
+}
+
+// WebhookForm is the typed input state for the Webhook card on
+// the detail page. F-03 / US-004 carries the user's typed values
+// across a re-render so they don't have to retype after a
+// validation error (invalid URL, missing secret, etc.).
+type WebhookForm struct {
+	URL    string
+	Secret string
 }
 
 // fetchQRPNG lazy-loads the whatsmeow client, pulls one QR payload,

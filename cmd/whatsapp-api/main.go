@@ -392,7 +392,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	// Webhook form-dispatcher: HTML forms can only POST, but the
 	// JSON API uses PUT /admin/api/instances/:id/webhook. This
 	// wrapper lets the detail page's form work without JS.
-	adminUI.POST("/instances/:id/webhook", handlers.WebhookFormActionHandler(instanceStore))
+	adminUI.POST("/instances/:id/webhook", handlers.WebhookFormActionHandler(db, mgr, instanceStore))
 	adminUI.GET("/audit", handlers.AdminAuditPage(db))
 
 	// Swagger UI + raw OpenAPI spec (US-017 + US-018, gated by US-037).
