@@ -96,38 +96,23 @@ var adminListTmpl = template.Must(
   </div>
   {{if .ActionResult}}<div class="{{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
   {{if .Instances}}
-  <table>
-    <colgroup>
-      <col>               <!-- name (auto) -->
-      <col style="width:90px">  <!-- status badge -->
-      <col style="width:160px"> <!-- phone / JID -->
-      <col style="width:60px">  <!-- webhook -->
-      <col class="col-date" style="width:150px"> <!-- last seen -->
-      <col class="col-date" style="width:150px"> <!-- created -->
-    </colgroup>
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Status</th>
-        <th>Phone / JID</th>
-        <th>Webhook</th>
-        <th class="col-date">Last seen</th>
-        <th class="col-date">Created</th>
-      </tr>
-    </thead>
-    <tbody>
+  <div class="card-grid">
     {{range .Instances}}
-      <tr class="row" onclick="location.href='/admin/instances/{{.ID}}'">
-        <td><b>{{.Name}}</b></td>
-        <td><span class="badge {{.Status}}">{{.Status}}</span></td>
-        <td>{{if .Phone}}{{.Phone}}{{else}}<span class="muted">—</span>{{end}}</td>
-        <td class="col-empty">{{if .WebhookConfigured}}<span title="{{.WebhookURL}}">✓</span>{{else}}<span class="muted">—</span>{{end}}</td>
-        <td class="col-date">{{if .LastSeen}}{{.LastSeen}}{{else}}{{.Created}}{{end}}</td>
-        <td class="col-date muted">{{.Created}}</td>
-      </tr>
+    <a class="card card-clickable" href="/admin/instances/{{.ID}}" data-instance-id="{{.ID}}">
+      <div class="flex justify-between items-start gap-2">
+        <h3>{{.Name}}</h3>
+        <span class="badge {{.Status}}">{{.Status}}</span>
+      </div>
+      <div class="card-meta">
+        <div><span class="key">Phone</span>{{if .Phone}}{{.Phone}}{{else}}<span class="muted">—</span>{{end}}</div>
+        <div><span class="key">Webhook</span>{{if .WebhookConfigured}}<span title="{{.WebhookURL}}">✓</span>{{else}}<span class="muted">—</span>{{end}}</div>
+        <div><span class="key">Last seen</span>{{if .LastSeen}}{{.LastSeen}}{{else}}{{.Created}}{{end}}</div>
+        <div><span class="key">Created</span><span class="muted">{{.Created}}</span></div>
+      </div>
+      <span class="card-open">Open →</span>
+    </a>
     {{end}}
-    </tbody>
-  </table>
+  </div>
   {{else}}
   <p class="muted">No instances yet. <a href="/admin/instances/new">Create one</a>.</p>
   {{end}}

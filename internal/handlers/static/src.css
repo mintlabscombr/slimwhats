@@ -62,6 +62,32 @@
     @apply mt-0 mb-4 text-lg;
   }
 
+  /* Card grid for the instance list (replaces the F-01 <table>).
+   * Responsive: 1 col mobile, 2 cols tablet, 3 cols desktop. */
+  .card-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4;
+  }
+  /* Clickable card variant. Used on the instance list — the whole card
+   * is a link to the detail page. Hover + focus lift the shadow. */
+  .card-clickable {
+    @apply block transition-shadow no-underline text-inherit
+           hover:shadow-card-hover focus-visible:shadow-card-hover
+           focus-visible:outline-none focus-visible:ring-2
+           focus-visible:ring-primary focus-visible:ring-offset-2;
+  }
+  .card-clickable h3 {
+    @apply mt-0 mb-1 text-base font-semibold text-gray-900;
+  }
+  .card-clickable .card-meta {
+    @apply mt-3 text-sm text-gray-600 space-y-1;
+  }
+  .card-clickable .card-meta .key {
+    @apply text-gray-400 mr-2;
+  }
+  .card-clickable .card-open {
+    @apply mt-4 inline-block text-sm text-primary;
+  }
+
   /* --- Buttons ----------------------------------------------------------- */
 
   .btn {
