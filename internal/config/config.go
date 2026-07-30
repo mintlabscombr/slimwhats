@@ -51,9 +51,18 @@ type yamlConfig struct {
 // validated *Config or an error describing what's missing or malformed.
 func Load() (*Config, error) {
 	yc := yamlConfig{
-		HTTPAddr:        ":8080",
-		DBDriver:        "sqlite3",
-		DBDSN:           "file:data/whatsmeow-api.db?_pragma=foreign_keys(1)",
+		HTTPAddr: ":8080",
+		DBDriver: "sqlite3",
+		// WAL journal mode: lets multiple readers + one writer
+		// proceed concurrently. The default "delete" mode
+		// serialises ALL writes through one lock, which is what
+		// produced the SQLITE_BUSY storm on LoggedOut (whatsmeow's
+		// internal device-cleanup transaction + our SetStatus +
+		// webhook.RecordDelivery all colliding). busy_timeout=5s
+		// means even the rare WAL contention just waits up to 5
+		// seconds instead of erroring immediately. Foreign_keys
+		// remains on (required by whatsmeow's Upgrade).
+		DBDSN:           "file:data/whatsmeow-api.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
 		ManagerUsername: "admin",
 	}
 	if data, err := os.ReadFile("config.yaml"); err == nil {

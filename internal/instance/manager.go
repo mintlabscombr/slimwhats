@@ -300,6 +300,49 @@ func (m *Manager) Disconnect(instanceID string) error {
 	return nil
 }
 
+// LogoutAndReset is the runtime equivalent of the f155c7d boot
+// fallback: the server has just sent us events.LoggedOut (typically
+// because the phone unlinked the device, or revoked the session
+// for some other reason), the whatsmeow_device row on the server
+// side is already gone, and the in-memory client in our map is
+// now referencing a zombie. Any further operation on it (e.g.
+// auto-reconnect, GetLatestQR → Connect) will fail with "invalid
+// use of deleted device" forever.
+//
+// This method evicts the client from the in-memory map (so the
+// next Start / Get will lazy-load with a fresh device) and
+// clears the paired identity in the instances row (so the UI
+// flips to "pairing" and the next detail-page load renders a
+// fresh QR for re-pairing). Idempotent — safe to call even if
+// the client isn't loaded.
+//
+// This is what should have been in the events.LoggedOut
+// handler from the start; before this method existed, the
+// status would stay at "logged_out" or get stuck at
+// "connected" depending on the race, and the user had to
+// restart the server to recover.
+func (m *Manager) LogoutAndReset(instanceID string) error {
+	m.mu.Lock()
+	mc, ok := m.clients[instanceID]
+	delete(m.clients, instanceID)
+	m.mu.Unlock()
+	if ok {
+		mc.expectedDisconnect = true
+		// Best-effort close of the websocket. The underlying
+		// device is already deleted server-side, so this is
+		// mostly ceremonial.
+		mc.client.Disconnect()
+	}
+	// Clear the paired identity. Status flips to "pairing"
+	// because the next step is necessarily a re-scan of the
+	// QR — we don't surface "logged_out" as a stable state in
+	// the UI (the lifecycle button matrix already treats it
+	// as "needs connect / reconnect anyway").
+	_, err := m.DB.Exec(`UPDATE instances SET jid=NULL, lid=NULL, phone=NULL, status=?, updated_at=? WHERE id=?`,
+		"pairing", time.Now().UTC(), instanceID)
+	return err
+}
+
 // Reconnect is Disconnect + Start. Used for the "kick" lifecycle
 // action when the operator wants to force a fresh session.
 func (m *Manager) Reconnect(ctx context.Context, instanceID string) error {

@@ -188,8 +188,20 @@ func main() {
 			}
 			slog.Info("instance disconnected", "id", instanceID, "reason", disconnectReason(e))
 		case *events.LoggedOut:
-			_ = instanceStore.SetStatus(instanceID, instance.StatusLoggedOut, nil, nil)
+			// Server revoked the session (phone unlinked the
+			// device, or kicked us for some other reason).
+			// Evict the in-memory client (it's referencing a
+			// deleted whatsmeow_device) and flip the instance
+			// back to "pairing" so the next page load renders a
+			// fresh QR. Without this, the client sticks around
+			// as a zombie: auto-reconnect loops on "invalid use
+			// of deleted device", GetLatestQR fails, the UI
+			// keeps showing "connected" because the cached
+			// IsLoggedIn() is stale. See Manager.LogoutAndReset.
 			slog.Warn("instance logged out", "id", instanceID, "reason", e.Reason.String())
+			if err := mgr.LogoutAndReset(instanceID); err != nil {
+				slog.Warn("logout-and-reset", "id", instanceID, "err", err)
+			}
 		case *events.ConnectFailure:
 			// WhatsApp's server sent a <failure> node to the
 			// connect handshake. This is where "Cant link new
