@@ -415,6 +415,11 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminAPI.GET("/instances/:id/qr", handlers.InstanceQRHandler(mgr))
 	adminAPI.GET("/instances/:id/status", handlers.InstanceStatusHandler(mgr))
 	adminAPI.GET("/instances/:id/logs", handlers.ListInstanceLogsHandler(instanceStore))
+	// Live event stream (F-02/US-039). Browser opens an EventSource
+	// here; the server pushes `status` and `qr_update` events as
+	// whatsmeow state changes. Stays under SessionMiddleware so the
+	// event stream isn't publicly readable.
+	adminAPI.GET("/events", handlers.EventsHandler(mgr))
 	adminAPI.PUT("/instances/:id/webhook", handlers.SetWebhookHandler(instanceStore))
 	adminAPI.GET("/instances/:id/webhook-deliveries", handlers.ListWebhookDeliveriesHandler(db))
 

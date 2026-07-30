@@ -537,3 +537,44 @@ func (m *Manager) SubscribeEvents(cb EventCallback) {
 		})
 	}
 }
+
+// AddEventHandler registers the given callback as an additional event
+// handler on every currently-managed whatsmeow client and returns a
+// cancel func that unsubscribes from all of them.
+//
+// Unlike SubscribeEvents (which overwrites the single global callback
+// used by main.go for webhook dispatch + status persistence), this
+// method stacks: a caller can register their own handler without
+// disturbing the global flow. Used by the SSE handler
+// (handlers/events.go, F-02/US-039) to stream whatsmeow events to a
+// per-request browser session.
+//
+// Caveat: only clients present at the time of the call receive the
+// handler. Clients created afterwards (new instances pairing up
+// mid-session) won't be covered. For the SSE use case this is fine —
+// the operator refreshes to re-subscribe. The manager intentionally
+// does not retain a "late-attach" list to keep the per-client
+// event-handler ID management simple.
+func (m *Manager) AddEventHandler(cb EventCallback) (cancel func()) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids := make(map[string][]uint32, len(m.clients))
+	for id, mc := range m.clients {
+		instanceID := id
+		ids[instanceID] = append(ids[instanceID],
+			mc.client.AddEventHandler(func(evt interface{}) {
+				cb(instanceID, evt)
+			}))
+	}
+	return func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		for id, mc := range m.clients {
+			if hs, ok := ids[id]; ok {
+				for _, hid := range hs {
+					mc.client.RemoveEventHandler(hid)
+				}
+			}
+		}
+	}
+}
