@@ -27,6 +27,19 @@ func Open(ctx context.Context, driver, dsn string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", driver, err)
 	}
+	// SQLite + WAL quirk: each *sql.DB connection in the pool is
+	// effectively a separate SQLite handle. With multiple connections
+	// open, writes via Exec from one connection can land in the WAL
+	// but reads via QueryRow from a different connection may not see
+	// them (each handle reads from its own snapshot, and modernc's
+	// WAL fsync semantics make this racy). The standard mitigation
+	// is to keep the pool size at 1 — SQLite is single-writer
+	// anyway, and our workload is low-throughput. Postgres DSN
+	// (APP_DB_DRIVER=postgres) is unaffected.
+	if driver == "sqlite" || driver == "sqlite3" {
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
+	}
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping %s: %w", driver, err)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -173,6 +174,49 @@ func isValidWebhookURL(u string) bool {
 
 func startsWith(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+// WebhookFormActionHandler — POST /admin/instances/{id}/webhook.
+// Form-based dispatcher for the Webhook card on the detail page.
+// The underlying API is PUT /admin/api/instances/{id}/webhook
+// (used by external clients) but HTML forms can only POST, so this
+// is a thin wrapper that reads the form values, validates, calls
+// store.SetWebhook, and redirects back to the detail page with a
+// status message in the query string. Same pattern as
+// LifecycleActionHandler / APIKeyFormActionHandler.
+func WebhookFormActionHandler(store *instance.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		webhookURL := c.PostForm("url")
+		secret := c.PostForm("secret")
+
+		var msg, msgClass string
+		if webhookURL == "" && secret == "" {
+			// Clear
+			if err := store.SetWebhook(id, "", ""); err != nil {
+				msg, msgClass = "Clear failed: "+err.Error(), "error"
+			} else {
+				msg, msgClass = "Webhook cleared.", "ok"
+			}
+		} else {
+			// Validate URL
+			if !isValidWebhookURL(webhookURL) {
+				msg, msgClass = "URL must start with https:// (or http://localhost for dev).", "error"
+			} else if l := len(secret); l < 16 || l > 128 {
+				// Validate secret length
+				msg, msgClass = "Secret must be 16-128 chars.", "error"
+			} else if err := store.SetWebhook(id, webhookURL, secret); err != nil {
+				msg, msgClass = "Save failed: "+err.Error(), "error"
+			} else {
+				msg, msgClass = "Webhook saved.", "ok"
+			}
+		}
+
+		// Redirect-after-POST: the template renders the message
+		// from the query string via .ActionResult / .ActionResultClass.
+		c.Redirect(http.StatusFound,
+			"/admin/instances/"+id+"?msg="+url.QueryEscape(msg)+"&msg_class="+msgClass)
+	}
 }
 
 // InstanceAPIKeyAuth is a Gin middleware that authenticates requests

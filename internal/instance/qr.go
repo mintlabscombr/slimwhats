@@ -209,7 +209,7 @@ func (s *Store) SetWebhook(id, url, secret string) error {
 	_, err := s.DB.Exec(`
 		UPDATE instances
 		SET webhook_url = ?, webhook_secret = ?
-		WHERE id = ?`, id, url, secret)
+		WHERE id = ?`, url, secret, id)
 	return err
 }
 

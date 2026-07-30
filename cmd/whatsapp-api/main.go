@@ -389,6 +389,10 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	// still handles programmatic reveals.)
 	adminUI.POST("/instances/:id/api-key/rotate", handlers.APIKeyFormActionHandler(apiKeyDeps))
 	adminUI.POST("/instances/:id/delete", handlers.APIKeyFormActionHandler(apiKeyDeps))
+	// Webhook form-dispatcher: HTML forms can only POST, but the
+	// JSON API uses PUT /admin/api/instances/:id/webhook. This
+	// wrapper lets the detail page's form work without JS.
+	adminUI.POST("/instances/:id/webhook", handlers.WebhookFormActionHandler(instanceStore))
 	adminUI.GET("/audit", handlers.AdminAuditPage(db))
 
 	// Manager-authenticated JSON API.

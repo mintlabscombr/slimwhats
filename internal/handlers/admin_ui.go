@@ -223,13 +223,14 @@ var adminDetailTmpl = template.Must(
 
 <div class="card">
   <h2>Webhook</h2>
-  <form method="POST" action="/admin/api/instances/{{.Instance.ID}}/webhook">
+  <form method="POST" action="/admin/instances/{{.Instance.ID}}/webhook">
     <label for="wh_url">URL</label>
     <input id="wh_url" name="url" placeholder="https://example.com/wh" value="{{.Instance.WebhookURL}}">
     <label for="wh_secret">Secret (16-128 chars)</label>
     <input id="wh_secret" name="secret" type="password" placeholder="leave blank to keep current">
     <button class="btn" type="submit">Save</button>
   </form>
+  <p class="muted" style="margin-top:.5rem">Empty both fields to clear the webhook config.</p>
 </div>
 
 <div class="card">
