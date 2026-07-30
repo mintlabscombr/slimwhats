@@ -11,29 +11,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// loginTmpl is the manager login page. Minimal CSS inlined, single
-// password field, static "admin" username label.
+// loginTmpl is the manager login page. Uses the same embedded `adminCSS`
+// as the rest of the manager UI (defined in admin_ui.go) — login-specific
+// overrides are scoped to `body.login` in src.css so the two pages share
+// one stylesheet. Single password field, static "admin" username label.
 var loginTmpl = template.Must(template.New("login").Parse(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>slimwhats — Manager login</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; margin: 0; padding: 2rem; }
-  .card { max-width: 360px; margin: 4rem auto; background: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
-  h1 { margin: 0 0 .5rem; font-size: 1.25rem; }
-  p.sub { margin: 0 0 1.5rem; color: #666; font-size: .9rem; }
-  label { display: block; font-size: .85rem; color: #444; margin: 1rem 0 .25rem; }
-  input[type=text], input[type=password] { width: 100%; padding: .6rem .7rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 1rem; }
-  input[readonly] { background: #f5f5f5; color: #555; }
-  button { width: 100%; margin-top: 1.5rem; padding: .7rem; background: #1a7f37; color: #fff; border: 0; border-radius: 4px; font-size: 1rem; cursor: pointer; }
-  button:hover { background: #166a2e; }
-  .error { background: #fee; border: 1px solid #fcc; color: #a00; padding: .75rem; border-radius: 4px; margin-bottom: 1rem; font-size: .9rem; }
-  .hint { margin-top: 1.5rem; font-size: .75rem; color: #888; text-align: center; }
-</style>
+<style>` + string(adminCSS) + `</style>
 </head>
-<body>
+<body class="login">
 <form class="card" method="POST" action="/admin/login">
   <h1>slimwhats</h1>
   <p class="sub">Manager panel</p>

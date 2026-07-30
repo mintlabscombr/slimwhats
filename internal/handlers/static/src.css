@@ -1,10 +1,13 @@
 /*
  * Tailwind input — slimwhats manager UI.
  *
- * US-032 wires up the build pipeline. US-033 fills in the design tokens
- * (tailwind.config) and the @layer components below. For now this file
- * is just a valid Tailwind input so `make css-build` produces a
- * non-empty app.css (preflight + reset + the empty components layer).
+ * F-02 design system. US-033 lands the foundation: design tokens in
+ * `tailwind.config.js` (colors, radii, shadows) + a `@layer components`
+ * block that ports the F-01 adminCSS as `@apply` calls. US-034 refines
+ * the class names and removes remaining inline styles.
+ *
+ * The output is minified into `app.css` (gitignored) and embedded into
+ * the Go binary via `//go:embed static/app.css`.
  *
  * Tailwind docs: https://tailwindcss.com/docs/installation
  */
@@ -13,7 +16,204 @@
 @tailwind components;
 @tailwind utilities;
 
+/* --- Page chrome (shared base) -------------------------------------------- */
+
+@layer base {
+  body {
+    @apply bg-gray-100 text-gray-900 font-sans;
+  }
+}
+
+/* --- Component classes ----------------------------------------------------- */
+
 @layer components {
-  /* Filled in by US-033 — design tokens + component classes
-   * (.btn, .card, .badge, .alert, .input, .label, .muted). */
+
+  /* --- Manager UI chrome (admin pages) ----------------------------------- */
+
+  /* Top bar (chromeHeader). Use a specific class so the bare `header`
+   * selector doesn't accidentally style anything else. */
+  header.app-header {
+    @apply bg-primary text-white px-8 py-4 flex justify-between items-center;
+  }
+  header.app-header h1 {
+    @apply m-0 text-xl;
+  }
+  header.app-header h1 a {
+    @apply text-white no-underline;
+  }
+  header.app-header .nav a {
+    @apply text-white no-underline ml-4 opacity-90;
+  }
+  header.app-header .nav a:hover {
+    @apply opacity-100;
+  }
+
+  /* Page main container. */
+  main {
+    @apply max-w-screen-xl mx-6 my-6 px-6;
+  }
+
+  /* --- Cards ------------------------------------------------------------- */
+
+  .card {
+    @apply bg-white p-6 rounded-xl shadow-card mb-6;
+  }
+  .card h2 {
+    @apply mt-0 mb-4 text-lg;
+  }
+
+  /* --- Buttons ----------------------------------------------------------- */
+
+  .btn {
+    @apply inline-block px-4 py-2 rounded-lg bg-primary text-white border-0
+           cursor-pointer text-sm no-underline;
+  }
+  .btn:hover {
+    @apply opacity-90;
+  }
+  .btn.secondary {
+    @apply bg-gray-500;
+  }
+  .btn.danger {
+    @apply bg-red-700;
+  }
+  .btn:disabled,
+  .btn[disabled] {
+    @apply bg-gray-300 text-gray-500 cursor-not-allowed opacity-70;
+  }
+  .btn:disabled:hover,
+  .btn[disabled]:hover {
+    @apply opacity-70;
+  }
+
+  /* --- Status badges (pill) --------------------------------------------- */
+
+  .badge {
+    @apply inline-block px-2 py-0.5 rounded-full text-xs font-semibold uppercase;
+  }
+  .badge.connected {
+    @apply bg-primary-light text-primary-dark;
+  }
+  .badge.disconnected {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+  .badge.logged_out,
+  .badge.error {
+    @apply bg-red-100 text-red-700;
+  }
+  .badge.created,
+  .badge.pairing {
+    @apply bg-gray-100 text-gray-600;
+  }
+
+  /* --- Feedback blocks (legacy per-section placement; US-036 collapses
+       to a single top-of-page alert) ------------------------------------ */
+
+  .error {
+    @apply bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg;
+  }
+  .ok {
+    @apply bg-green-50 border border-green-200 text-green-800 p-3 rounded-lg;
+  }
+
+  /* --- Secondary text + helper copy ------------------------------------- */
+
+  .muted {
+    @apply text-gray-500 text-sm;
+  }
+  td.muted,
+  td .muted {
+    @apply text-gray-300;
+  }
+  label {
+    @apply text-sm text-gray-600;
+  }
+
+  /* --- Forms ------------------------------------------------------------- */
+
+  form {
+    @apply flex flex-col gap-3;
+  }
+  input,
+  select,
+  textarea {
+    @apply px-3 py-2 border border-gray-300 rounded-lg font-sans;
+  }
+  input[readonly] {
+    @apply bg-gray-100 text-gray-600;
+  }
+  .row {
+    @apply flex gap-2 items-center;
+  }
+  pre {
+    @apply bg-gray-100 p-3 rounded-lg overflow-x-auto text-xs;
+  }
+
+  /* --- Tables (used in the audit log; list page becomes a card grid
+       in US-035) ---------------------------------------------------------- */
+
+  table {
+    @apply w-full border-collapse bg-white shadow-card rounded-lg overflow-hidden;
+  }
+  th,
+  td {
+    @apply px-4 py-3 text-left border-b border-gray-200 align-middle whitespace-nowrap;
+  }
+  th {
+    @apply text-xs text-gray-500 uppercase tracking-wide bg-gray-50 font-semibold;
+  }
+  tr:last-child td {
+    @apply border-b-0;
+  }
+  tr.row:hover {
+    @apply bg-green-50/50 cursor-pointer;
+  }
+  td.col-date,
+  th.col-date {
+    @apply text-right tabular-nums;
+  }
+  td.col-empty {
+    @apply text-center text-gray-300;
+  }
+  td[title] {
+    @apply cursor-help;
+  }
+
+  /* --- Login page (scoped to body.login) ------------------------------- */
+
+  body.login {
+    @apply p-8;
+  }
+  body.login h1 {
+    @apply mt-0 mb-2 text-xl;
+  }
+  body.login p.sub {
+    @apply m-0 mb-6 text-gray-600 text-sm;
+  }
+  body.login .card {
+    @apply max-w-sm mx-auto my-16 p-8 rounded-xl shadow-card;
+  }
+  body.login label {
+    @apply block text-sm text-gray-700 my-4 mx-0;
+  }
+  body.login input[type="text"],
+  body.login input[type="password"] {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg text-base;
+  }
+  body.login input[readonly] {
+    @apply bg-gray-100 text-gray-600;
+  }
+  body.login button {
+    @apply w-full mt-6 px-4 py-3 bg-primary text-white border-0 rounded-lg
+           text-base cursor-pointer;
+  }
+  body.login button:hover {
+    @apply bg-primary-dark;
+  }
+  body.login .error {
+    @apply mb-4 text-sm;
+  }
+  body.login .hint {
+    @apply mt-6 text-xs text-gray-500 text-center;
+  }
 }
