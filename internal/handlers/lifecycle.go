@@ -18,7 +18,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -265,10 +264,14 @@ func currentUser(c *gin.Context) string {
 //
 // Form-based dispatcher for the lifecycle buttons in the detail
 // page (Connect / Disconnect / Reconnect). Reads the `action` form
-// value and routes to the matching Manager method, then redirects
-// back to the detail page with a status message in the query
-// string. Redirect-after-POST avoids the "are you sure you want
-// to resubmit the form?" prompt on browser refresh.
+// value and routes to the matching Manager method, then re-renders
+// the detail page (F-03 / US-006) with a status message in the
+// alert slot. No redirect, no query string — the URL stays
+// /admin/instances/{id}. Re-render is preferred over redirect so
+// the page state (status badge, QR, etc.) updates in place; the
+// "are you sure you want to resubmit the form?" prompt on browser
+// refresh is handled by the `data-alert-slot` div being outside
+// the form (the GET re-render doesn't re-fire the POST).
 func LifecycleActionHandler(deps LifecycleDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -276,17 +279,24 @@ func LifecycleActionHandler(deps LifecycleDeps) gin.HandlerFunc {
 		action := c.PostForm("action")
 		username := currentUser(c)
 
+		// msg/msgClass are the (English) text for the alert slot;
+		// they default to the resolved `Message(code)` on error
+		// paths and a fixed string on success paths. The codes
+		// themselves are short snake_case (errors.go) but we
+		// resolve here so the template's `{{.ActionResult}}`
+		// doesn't need to call a funcMap.
 		var msg, msgClass string
 		switch action {
 		case "connect":
 			// Confirm the instance exists + is paired.
 			inst, _, err := deps.Manager.LookupByID(ctx, id)
 			if err != nil {
-				msg, msgClass = "Lookup failed: "+err.Error(), "error"
+				slog.Warn("LifecycleActionHandler: lookup failed", "id", id, "err", err)
+				msg, msgClass = Message(ErrCodeLookupFailed), "error"
 				break
 			}
 			if inst == nil {
-				msg, msgClass = "Instance not found.", "error"
+				msg, msgClass = Message(ErrCodeNotFound), "error"
 				break
 			}
 			cli := deps.Manager.Get(id)
@@ -310,7 +320,7 @@ func LifecycleActionHandler(deps LifecycleDeps) gin.HandlerFunc {
 			if cli == nil || !cli.IsLoggedIn() {
 				// Unpaired device. The detail page renders a fresh
 				// QR when it loads. We kick the connect in a goroutine
-				// so the QR is in flight by the time the redirect
+				// so the QR is in flight by the time the re-render
 				// lands (saves a few hundred ms of waiting). The
 				// user-facing message is "loading QR" rather than
 				// "not paired" because the latter sounds like a
@@ -331,7 +341,8 @@ func LifecycleActionHandler(deps LifecycleDeps) gin.HandlerFunc {
 				break
 			}
 			if err := deps.Manager.Start(ctx, id); err != nil {
-				msg, msgClass = "Connect failed: "+err.Error(), "error"
+				slog.Warn("LifecycleActionHandler: connect failed", "id", id, "err", err)
+				msg, msgClass = Message(ErrCodeConnectFailed), "error"
 				break
 			}
 			if deps.Audit != nil {
@@ -341,7 +352,8 @@ func LifecycleActionHandler(deps LifecycleDeps) gin.HandlerFunc {
 
 		case "disconnect":
 			if err := deps.Manager.Disconnect(id); err != nil {
-				msg, msgClass = "Disconnect failed: "+err.Error(), "error"
+				slog.Warn("LifecycleActionHandler: disconnect failed", "id", id, "err", err)
+				msg, msgClass = Message(ErrCodeDisconnectFailed), "error"
 				break
 			}
 			_ = deps.Store.SetStatus(id, instance.StatusDisconnected, nil, nil)
@@ -353,15 +365,17 @@ func LifecycleActionHandler(deps LifecycleDeps) gin.HandlerFunc {
 		case "reconnect":
 			inst, _, err := deps.Manager.LookupByID(ctx, id)
 			if err != nil {
-				msg, msgClass = "Lookup failed: "+err.Error(), "error"
+				slog.Warn("LifecycleActionHandler: lookup failed", "id", id, "err", err)
+				msg, msgClass = Message(ErrCodeLookupFailed), "error"
 				break
 			}
 			if inst == nil {
-				msg, msgClass = "Instance not found.", "error"
+				msg, msgClass = Message(ErrCodeNotFound), "error"
 				break
 			}
 			if err := deps.Manager.Reconnect(ctx, id); err != nil {
-				msg, msgClass = "Reconnect failed: "+err.Error(), "error"
+				slog.Warn("LifecycleActionHandler: reconnect failed", "id", id, "err", err)
+				msg, msgClass = Message(ErrCodeReconnectFailed), "error"
 				break
 			}
 			if deps.Audit != nil {
@@ -373,9 +387,8 @@ func LifecycleActionHandler(deps LifecycleDeps) gin.HandlerFunc {
 			msg, msgClass = "Unknown action: "+action, "error"
 		}
 
-		// Redirect back to the detail page with the status message in
-		// the query string. The page template renders the message
-		// in the .ActionResult / .ActionResultClass fields.
-		c.Redirect(http.StatusFound, "/admin/instances/"+id+"?msg="+url.QueryEscape(msg)+"&msg_class="+msgClass)
+		// F-03 / US-006: re-render the detail page in place. No
+		// ?msg= / ?msg_class= in the URL.
+		renderInstanceDetail(c, deps.DB, deps.Manager, &WebhookForm{}, msg, msgClass)
 	}
 }
