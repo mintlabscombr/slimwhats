@@ -169,8 +169,15 @@ var adminNewTmpl = template.Must(
 )
 
 // adminDetailTmpl is the per-instance page (US-021). Compact for v1.
+//
+// The data-sse-mode wrapper carries `space-y-6` so the 5 sibling
+// .card blocks (Status / Lifecycle / Webhook / API key / Danger
+// zone) have consistent vertical rhythm. The parent main.main-content
+// only spaces its direct children — since this wrapper is the
+// only direct child of <main>, the cards would otherwise stack
+// with zero margin between them.
 var adminDetailTmpl = template.Must(
-	template.New("detail").Funcs(adminFuncs).Parse(`{{define "render"}}<div data-sse-mode="detail" data-instance-id="{{.Instance.ID}}">
+	template.New("detail").Funcs(adminFuncs).Parse(`{{define "render"}}<div data-sse-mode="detail" data-instance-id="{{.Instance.ID}}" class="space-y-6">
 <div data-alert-slot>
 {{if .ActionResult}}<div class="alert {{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
 </div>
