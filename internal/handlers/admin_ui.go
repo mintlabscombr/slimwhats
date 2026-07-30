@@ -259,15 +259,23 @@ var adminDetailTmpl = template.Must(
 </div>{{end}}`),
 )
 
-// adminAuditTmpl is the audit log page (US-030).
+// adminAuditTmpl is the audit log page (US-030 + F-04 live updates).
+//
+// F-04 / US-002: the wrapper div carries `data-sse-mode="audit"` so
+// the embedded app.js wires up the SSE listener; the tbody has
+// `data-audit-tbody` so the JS can find it and prepend a new row
+// when an `audit_entry` SSE event arrives. The table is always
+// rendered (even when empty) so the JS can find the tbody on a
+// freshly-loaded page; the empty-state message hangs off the tbody
+// as a single row and the JS removes it on the first live entry.
 var adminAuditTmpl = template.Must(
-	template.New("audit").Funcs(adminFuncs).Parse(`{{define "render"}}<div class="card">
+	template.New("audit").Funcs(adminFuncs).Parse(`{{define "render"}}<div data-sse-mode="audit" class="card">
   <h2>Audit log</h2>
-  {{if .Entries}}
   <table>
     <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Target</th><th>IP</th><th>UA</th></tr></thead>
-    <tbody>
-    {{range .Entries}}
+    <tbody data-audit-tbody>
+      {{if .Entries}}
+      {{range .Entries}}
       <tr>
         <td>{{.Timestamp}}</td>
         <td>{{.Username}}</td>
@@ -276,12 +284,12 @@ var adminAuditTmpl = template.Must(
         <td>{{.SourceIP}}</td>
         <td class="muted text-xs max-w-[200px] truncate">{{.UserAgent}}</td>
       </tr>
-    {{end}}
+      {{end}}
+      {{else}}
+      <tr data-audit-empty><td colspan="6" class="muted">No actions logged yet.</td></tr>
+      {{end}}
     </tbody>
   </table>
-  {{else}}
-  <p class="muted">No actions logged yet.</p>
-  {{end}}
 </div>{{end}}`),
 )
 

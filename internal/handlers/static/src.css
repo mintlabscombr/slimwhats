@@ -228,6 +228,21 @@
     @apply cursor-help;
   }
 
+  /* --- Audit log: highlight a freshly-prepended row (F-04 / US-002) ---
+   * The JS adds `audit-row-just-added` to each <tr> on insert and
+   * the row is then re-rendered without the class on the next paint
+   * (the class is purely transient). Pure CSS keyframe — no JS timer,
+   * no setTimeout, no cleanup. Background pulses the brand green
+   * for ~0.4s then fades to transparent over 0.6s. */
+  tr.audit-row-just-added {
+    animation: audit-flash 1s ease-out forwards;
+  }
+  @keyframes audit-flash {
+    0%   { background-color: #d4f7dc; }
+    40%  { background-color: #d4f7dc; }
+    100% { background-color: transparent; }
+  }
+
   /* --- Login page (scoped to body.login) ------------------------------- */
 
   body.login {
