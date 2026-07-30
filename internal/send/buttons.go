@@ -19,21 +19,29 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ButtonRequest is one button in the buttons array.
+// ButtonRequest is one button in the buttons array. JSON field names
+// match the OpenAPI spec (internal/handlers/openapi.yaml) — keep them
+// in sync if you edit one.
 type ButtonRequest struct {
-	Type        string `json:"type"` // reply, url, copy, call, pix
-	ID          string `json:"id,omitempty"`
-	Label       string `json:"label,omitempty"`
-	URL         string `json:"url,omitempty"`
-	Code        string `json:"code,omitempty"`
-	PhoneNumber string `json:"phone_number,omitempty"`
+	Type string `json:"type"` // reply, url, copy, call, pix
+	ID   string `json:"id,omitempty"`
+	// Text is the display text on the button. The OpenAPI spec calls
+	// it `text` (not `label`) — the old `label` JSON tag was a bug:
+	// payloads using `text` (matching the spec) silently dropped the
+	// field, producing buttons with empty display_text.
+	Text string `json:"text,omitempty"`
+	URL  string `json:"url,omitempty"`
+	Code string `json:"code,omitempty"`
+	// Phone is the E.164 number for `call` buttons. Spec uses `phone`
+	// (not `phone_number`) — same field, renamed to match.
+	Phone string `json:"phone,omitempty"`
 
 	// Pix-specific (server-built payment_info button)
 	Currency     string `json:"currency,omitempty"`
 	Name         string `json:"name,omitempty"`
 	KeyType      string `json:"key_type,omitempty"`
 	Key          string `json:"key,omitempty"`
-	AmountCents  int64  `json:"amount_cents,omitempty"`
+	AmountCents  int64  `json:"amount,omitempty"` // in cents (BRL)
 	TxID         string `json:"txid,omitempty"`
 	MerchantName string `json:"merchant_name,omitempty"`
 	MerchantCity string `json:"merchant_city,omitempty"`
@@ -150,32 +158,32 @@ func validateButtons(req ButtonsRequest) error {
 			if len(b.ID) > 256 {
 				return errors.New("reply.id must be ≤ 256 chars")
 			}
-			if len(b.Label) > 20 {
-				return errors.New("reply.label must be ≤ 20 chars")
+			if len(b.Text) > 20 {
+				return errors.New("reply.text must be ≤ 20 chars")
 			}
 		case "url":
 			hasURL = true
 			if len(b.URL) > 2048 || !(strings.HasPrefix(b.URL, "https://") || strings.HasPrefix(b.URL, "http://localhost") || strings.HasPrefix(b.URL, "http://127.0.0.1")) {
 				return errors.New("url.url must be https:// (or http://localhost) and ≤ 2048 chars")
 			}
-			if len(b.Label) > 20 {
-				return errors.New("url.label must be ≤ 20 chars")
+			if len(b.Text) > 20 {
+				return errors.New("url.text must be ≤ 20 chars")
 			}
 		case "copy":
 			hasCopy = true
 			if len(b.Code) > 256 {
 				return errors.New("copy.code must be ≤ 256 chars")
 			}
-			if len(b.Label) > 20 {
-				return errors.New("copy.label must be ≤ 20 chars")
+			if len(b.Text) > 20 {
+				return errors.New("copy.text must be ≤ 20 chars")
 			}
 		case "call":
 			hasCall = true
-			if !phoneRegexp.MatchString(b.PhoneNumber) {
-				return errors.New("call.phone_number must be valid E.164")
+			if !phoneRegexp.MatchString(b.Phone) {
+				return errors.New("call.phone must be valid E.164")
 			}
-			if len(b.Label) > 20 {
-				return errors.New("call.label must be ≤ 20 chars")
+			if len(b.Text) > 20 {
+				return errors.New("call.text must be ≤ 20 chars")
 			}
 		case "pix":
 			hasPix = true
@@ -287,7 +295,7 @@ func buildReplyButtonsMessage(req ButtonsRequest, msgSecret []byte) *waE2E.Messa
 		btns = append(btns, &waE2E.ButtonsMessage_Button{
 			ButtonID: proto.String(b.ID),
 			ButtonText: &waE2E.ButtonsMessage_Button_ButtonText{
-				DisplayText: proto.String(b.Label),
+				DisplayText: proto.String(b.Text),
 			},
 			Type: waE2E.ButtonsMessage_Button_RESPONSE.Enum(),
 		})
@@ -400,7 +408,7 @@ func buildNativeFlowButton(b ButtonRequest) (*waE2E.InteractiveMessage_NativeFlo
 	switch b.Type {
 	case "url":
 		params, _ := json.Marshal(map[string]string{
-			"display_text": b.Label,
+			"display_text": b.Text,
 			"url":          b.URL,
 			"merchant_url": b.URL,
 		})
@@ -418,7 +426,7 @@ func buildNativeFlowButton(b ButtonRequest) (*waE2E.InteractiveMessage_NativeFlo
 			id = "copy_" + strconv.FormatInt(time.Now().UnixNano(), 10)
 		}
 		params, _ := json.Marshal(map[string]string{
-			"display_text": b.Label,
+			"display_text": b.Text,
 			"id":           id,
 			"copy_code":    code,
 		})
@@ -428,8 +436,8 @@ func buildNativeFlowButton(b ButtonRequest) (*waE2E.InteractiveMessage_NativeFlo
 		}, nil
 	case "call":
 		params, _ := json.Marshal(map[string]string{
-			"display_text": b.Label,
-			"phone_number": b.PhoneNumber,
+			"display_text": b.Text,
+			"phone_number": b.Phone,
 		})
 		return &waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
 			Name:             proto.String("cta_call"),
