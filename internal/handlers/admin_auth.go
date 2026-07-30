@@ -40,13 +40,27 @@ type LoginResponse struct {
 // LoginHandler validates the manager password and mints a session cookie.
 // Rate limit: 5 failed attempts per source IP per 10 minutes → 429 with
 // Retry-After.
+//
+// Error responses branch on Accept: a browser form submit (text/html)
+// gets a 302 to /admin/login?error=... so the login page can render
+// the message inline; an API client (application/json) gets a
+// structured JSON error. Pre-F-02 the handler always returned JSON,
+// which rendered as a raw {"error":"..."} blob in the browser — looked
+// like the login was broken to anyone who fat-fingered a password
+// or got rate-limited.
 func LoginHandler(d AdminAuthDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
+		browser := wantsHTML(c.GetHeader("Accept"))
 
 		// Lockout check
 		if remaining := d.Limiter.Check(ip); remaining > 0 {
 			c.Header("Retry-After", formatSeconds(remaining))
+			if browser {
+				c.Redirect(http.StatusFound,
+					"/admin/login?error=rate_limited&retry_after="+formatSeconds(remaining))
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error":   "rate_limited",
 				"message": "too many failed login attempts",
@@ -58,6 +72,10 @@ func LoginHandler(d AdminAuthDeps) gin.HandlerFunc {
 		var req LoginRequest
 		if err := c.ShouldBind(&req); err != nil {
 			d.recordFailure(c, ip)
+			if browser {
+				c.Redirect(http.StatusFound, "/admin/login?error=invalid_request")
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"error":   "invalid_request",
 				"message": "password field is required",
@@ -67,6 +85,10 @@ func LoginHandler(d AdminAuthDeps) gin.HandlerFunc {
 
 		if !auth.CompareConstantTime(req.Password, d.ManagerPassword) {
 			d.recordFailure(c, ip)
+			if browser {
+				c.Redirect(http.StatusFound, "/admin/login?error=invalid_credentials")
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error":   "invalid_credentials",
 				"message": "invalid username or password",
@@ -77,6 +99,10 @@ func LoginHandler(d AdminAuthDeps) gin.HandlerFunc {
 		d.Limiter.RecordSuccess(ip)
 		sess, err := d.Sessions.Create(c.Request.Context(), d.ManagerUsername)
 		if err != nil {
+			if browser {
+				c.Redirect(http.StatusFound, "/admin/login?error=session_create_failed")
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"error":   "session_create_failed",
 				"message": "could not create session",
@@ -96,7 +122,7 @@ func LoginHandler(d AdminAuthDeps) gin.HandlerFunc {
 		// Browser form submit (Accept: text/html) → 302 to /admin/ so
 		// the user lands on the home page. JSON client → keep the
 		// structured LoginResponse so API consumers can parse it.
-		if wantsHTML(c.GetHeader("Accept")) {
+		if browser {
 			c.Redirect(http.StatusFound, "/admin/")
 			return
 		}

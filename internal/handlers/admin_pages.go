@@ -65,7 +65,16 @@ func LoginPageHandler(managerUsername string) gin.HandlerFunc {
 		if errMsg == "invalid_credentials" {
 			errMsg = "Invalid username or password."
 		} else if errMsg == "rate_limited" {
-			errMsg = "Too many failed attempts. Try again in 15 minutes."
+			retryAfter := c.Query("retry_after")
+			if retryAfter != "" {
+				errMsg = "Too many failed attempts. Try again in " + retryAfter + " seconds."
+			} else {
+				errMsg = "Too many failed attempts. Try again in 15 minutes."
+			}
+		} else if errMsg == "invalid_request" {
+			errMsg = "Password is required."
+		} else if errMsg == "session_create_failed" {
+			errMsg = "Could not start a session. Please try again."
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.Status(http.StatusOK)
