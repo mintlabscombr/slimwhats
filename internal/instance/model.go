@@ -66,14 +66,18 @@ func NewStore(db *sql.DB) *Store {
 
 // CreateInput is the validated input for creating an instance.
 type CreateInput struct {
-	Name   string
-	APIKey string // plaintext; stored as-is in the api_key column
+	Name          string
+	APIKey        string // plaintext; stored as-is in the api_key column
+	WebhookURL    string // optional; if set, WebhookSecret must also be set
+	WebhookSecret string // optional; if set, WebhookURL must also be set
 }
 
 // Create persists a new instance in the `created` status with the API
 // key stored in plaintext (no bcrypt). If APIKey is empty, one is
-// auto-generated. Returns the new instance and the plaintext API key
-// (caller must surface it to the operator once).
+// auto-generated. If WebhookURL is set, WebhookSecret must also be set
+// (and vice versa) — partial webhook config would never fire anyway.
+// Returns the new instance and the plaintext API key (caller must
+// surface it to the operator once).
 func (s *Store) Create(in CreateInput) (*Instance, string, error) {
 	if in.Name == "" {
 		return nil, "", errors.New("name is required")
@@ -81,6 +85,21 @@ func (s *Store) Create(in CreateInput) (*Instance, string, error) {
 	if len(in.Name) > 64 {
 		return nil, "", errors.New("name must be ≤ 64 chars")
 	}
+	// Webhook pair validation: both fields set or both empty. A
+	// partial config is rejected with a clear error so the operator
+	// knows the pair wasn't applied.
+	var webhookURL, webhookSecret sql.NullString
+	if in.WebhookURL != "" || in.WebhookSecret != "" {
+		if in.WebhookURL == "" {
+			return nil, "", errors.New("webhook_secret is set but webhook_url is empty")
+		}
+		if in.WebhookSecret == "" {
+			return nil, "", errors.New("webhook_url is set but webhook_secret is empty")
+		}
+		webhookURL = sql.NullString{String: in.WebhookURL, Valid: true}
+		webhookSecret = sql.NullString{String: in.WebhookSecret, Valid: true}
+	}
+
 	plaintext := in.APIKey
 	if plaintext == "" {
 		var err error
@@ -99,9 +118,9 @@ func (s *Store) Create(in CreateInput) (*Instance, string, error) {
 	now := time.Now().UTC()
 	_, err = s.DB.Exec(`
 		INSERT INTO instances
-			(id, name, api_key, status, api_key_set_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, in.Name, plaintext, string(StatusCreated), now, now, now,
+			(id, name, api_key, webhook_url, webhook_secret, status, api_key_set_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, in.Name, plaintext, webhookURL, webhookSecret, string(StatusCreated), now, now, now,
 	)
 	if err != nil {
 		// Best-effort uniqueness detection: SQLite uses "UNIQUE constraint failed"
@@ -112,13 +131,15 @@ func (s *Store) Create(in CreateInput) (*Instance, string, error) {
 		return nil, "", fmt.Errorf("insert instance: %w", err)
 	}
 	return &Instance{
-		ID:        id,
-		Name:      in.Name,
-		APIKey:    plaintext,
-		Status:    StatusCreated,
-		APISetAt:  sql.NullTime{Time: now, Valid: true},
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:            id,
+		Name:          in.Name,
+		APIKey:        plaintext,
+		WebhookURL:    webhookURL,
+		WebhookSecret: webhookSecret,
+		Status:        StatusCreated,
+		APISetAt:      sql.NullTime{Time: now, Valid: true},
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}, plaintext, nil
 }
 

@@ -141,6 +141,11 @@ var adminNewTmpl = template.Must(
     <input id="name" name="name" required maxlength="64" placeholder="e.g. Sales BR">
     <label for="api_key">API key (optional, leave blank to auto-generate)</label>
     <input id="api_key" name="api_key" placeholder="sk_live_...">
+    <label for="webhook_url">Webhook URL (optional)</label>
+    <input id="webhook_url" name="webhook_url" type="url" placeholder="https://example.com/wh">
+    <label for="webhook_secret">Webhook secret (required if URL is set)</label>
+    <input id="webhook_secret" name="webhook_secret" type="password" placeholder="any non-empty value">
+    <p class="muted text-sm">If you set a webhook URL, you must also set a secret (both can be changed later on the instance detail page).</p>
     <div class="row mt-2">
       <button class="btn" type="submit">Create</button>
       <a class="btn secondary" href="/admin/">Cancel</a>
@@ -364,17 +369,26 @@ func AdminNewPage() gin.HandlerFunc {
 // ?error=... so the page re-renders with a red banner above the
 // inputs (mirrors the form-dispatcher pattern from the lifecycle /
 // api-key / delete handlers).
+//
+// Webhook URL + secret are accepted on this form too (both optional,
+// but if one is set the other must be too — validated inside
+// store.Create). Lets the operator wire a webhook at create time
+// instead of going through the detail page afterwards.
 func AdminNewSubmit(store *instance.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		name := strings.TrimSpace(c.PostForm("name"))
 		apiKey := strings.TrimSpace(c.PostForm("api_key"))
+		webhookURL := strings.TrimSpace(c.PostForm("webhook_url"))
+		webhookSecret := strings.TrimSpace(c.PostForm("webhook_secret"))
 		if name == "" {
 			c.Redirect(http.StatusFound, "/admin/instances/new?error=Name+is+required.")
 			return
 		}
 		inst, plaintext, err := store.Create(instance.CreateInput{
-			Name:   name,
-			APIKey: apiKey,
+			Name:          name,
+			APIKey:        apiKey,
+			WebhookURL:    webhookURL,
+			WebhookSecret: webhookSecret,
 		})
 		if err != nil {
 			if errors.Is(err, instance.ErrNameTaken) {
