@@ -183,6 +183,23 @@ func (m *Manager) Start(ctx context.Context, instanceID string) error {
 		if err != nil {
 			return fmt.Errorf("get device for %s: %w", jid, err)
 		}
+		if device == nil {
+			// The whatsmeow_device row is gone (server told us
+			// to forget the device via LoggedOut, or someone
+			// nuked the DB out of band) but instances.jid is
+			// still set from a previous pairing. Treat this as
+			// "needs re-pair": create a fresh device, and
+			// clear the stale jid/lid/phone in the instance
+			// row so the UI shows the unpaired state instead
+			// of dangling identity fields.
+			slog.Warn("device row missing for stored jid; falling back to new device",
+				"id", instanceID, "jid", jid)
+			device = m.Container.NewDevice()
+			if _, derr := m.DB.Exec(`UPDATE instances SET jid=NULL, lid=NULL, phone=NULL, status=?, updated_at=? WHERE id=?`,
+				"pairing", time.Now().UTC(), instanceID); derr != nil {
+				slog.Warn("clear stale identity on missing-device fallback", "id", instanceID, "err", derr)
+			}
+		}
 	}
 
 	client := whatsmeow.NewClient(device, nil)
