@@ -88,9 +88,10 @@
       if (d.instance_id === instanceId) refreshQR();
     });
     es.addEventListener('audit_entry', function (ev) {
-      if (mode !== 'audit') return;
+      if (paused) return;
       var d; try { d = JSON.parse(ev.data); } catch (e) { return; }
-      prependAuditRow(d);
+      if (mode === 'audit') prependAuditRow(d);
+      else showAuditToast(d);
     });
     return es;
   }
@@ -188,6 +189,38 @@
   // so the browser handles all escaping. No string interpolation
   // into the DOM.
   var auditMaxRows = 100;
+  // Action → toast type. Anything unrecognised falls through to
+  // 'info'. Audit actions follow the `domain.verb` convention
+  // (instance.connect, instance.rotate_api_key, etc.) — match on
+  // substring so a new audit action still gets a sane default.
+  function auditActionType(action) {
+    if (!action) return 'info';
+    if (action.indexOf('delete') >= 0) return 'error';
+    if (action.indexOf('reveal_failed') >= 0) return 'error';
+    if (action.indexOf('rotate') >= 0) return 'warn';
+    if (action.indexOf('set_api_key') >= 0) return 'warn';
+    if (action.indexOf('disconnect') >= 0) return 'warn';
+    if (action.indexOf('connect') >= 0) return 'success';
+    if (action.indexOf('reveal') >= 0) return 'info';
+    return 'info';
+  }
+  // showAuditToast — cross-page audit notification. The audit page
+  // does the in-place row prepend (its own feedback); every other
+  // page (list, detail) shows a toast. Operator on the list page
+  // sees when any lifecycle action happens on any device without
+  // having to leave the page or refresh.
+  function showAuditToast(d) {
+    var user = d.username || '?';
+    var action = d.action || '?';
+    var msg = user + ': ' + action;
+    if (d.target_id) {
+      // Trim the UUID to the first 8 chars for readability — the
+      // operator can click into the relevant page if they want the
+      // full id. The full id is in the audit log anyway.
+      msg += ' on ' + String(d.target_id).slice(0, 8);
+    }
+    window.showToast(msg, auditActionType(action));
+  }
   function prependAuditRow(d) {
     var tbody = document.querySelector('[data-audit-tbody]');
     if (!tbody) return;
