@@ -406,7 +406,16 @@ func (m *Manager) loadInstance(ctx context.Context, id string) (*Instance, error
 // isn't in the in-memory map (e.g. the instance was created after
 // boot), it is loaded lazily. Returns nil if the instance doesn't
 // exist or fails to load.
+//
+// Nil-safe: a nil *Manager returns nil. The form-dispatcher
+// handlers pass `nil` in unit tests (no real whatsmeow container
+// in the test fixture); the detail re-render path then skips the
+// QR block (since cli == nil) instead of nil-derefing. Production
+// callers always pass a real manager.
 func (m *Manager) Get(instanceID string) *whatsmeow.Client {
+	if m == nil {
+		return nil
+	}
 	m.mu.RLock()
 	mc, ok := m.clients[instanceID]
 	m.mu.RUnlock()
