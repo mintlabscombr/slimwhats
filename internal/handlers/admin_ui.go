@@ -53,6 +53,8 @@ const adminCSS = `
   .btn.secondary { background: #555; }
   .btn.danger { background: #a00; }
   .btn:hover { opacity: .9; }
+  .btn:disabled, .btn[disabled] { background: #ccc; color: #888; cursor: not-allowed; opacity: .7; }
+  .btn:disabled:hover, .btn[disabled]:hover { opacity: .7; }
   form { display: flex; flex-direction: column; gap: .75rem; }
   input, select, textarea { padding: .55rem .7rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
   label { font-size: .85rem; color: #555; }
@@ -205,15 +207,15 @@ var adminDetailTmpl = template.Must(
 <div class="card">
   <h2>Lifecycle</h2>
   <form method="POST" action="/admin/instances/{{.Instance.ID}}" style="display:flex;gap:.5rem;flex-wrap:wrap">
-    <button class="btn" name="action" value="connect">Connect</button>
-    <button class="btn secondary" name="action" value="disconnect">Disconnect</button>
-    <button class="btn secondary" name="action" value="reconnect">Reconnect</button>
+    <button class="btn" name="action" value="connect"{{if not .Instance.CanConnect}} disabled title="Connect is only available when the instance is disconnected or logged out"{{end}}>Connect</button>
+    <button class="btn secondary" name="action" value="disconnect"{{if not .Instance.CanDisconnect}} disabled title="Disconnect is only available when the instance is connected"{{end}}>Disconnect</button>
+    <button class="btn secondary" name="action" value="reconnect"{{if not .Instance.CanReconnect}} disabled title="Reconnect is only available when the instance is paired (connected, disconnected, or logged out)"{{end}}>Reconnect</button>
   </form>
   {{if .ActionResult}}<div class="{{.ActionResultClass}}">{{.ActionResult}}</div>{{end}}
   {{if .QR}}
   <div style="margin-top:1rem;text-align:center">
     <h3 style="text-align:left">QR code</h3>
-    <p class="muted" style="text-align:left">Open WhatsApp → Linked Devices → Link a Device → scan this code. The QR rotates every 60s; if it expires, click <b>Connect</b> above to get a fresh one.</p>
+    <p class="muted" style="text-align:left">Open WhatsApp → Linked Devices → Link a Device → scan this code. The QR rotates every 60s.</p>
     <img src="{{.QR}}" alt="WhatsApp pairing QR code" style="display:inline-block;border:1px solid #ddd;padding:.5rem;background:#fff;border-radius:6px">
   </div>
   {{end}}
@@ -605,6 +607,44 @@ func getInstanceView(db *sql.DB, id string) (*InstanceView, error) {
 	if apiKey.Valid && apiKey.String != "" {
 		v.APIKeyMasked = "••••••••" + last4(apiKey.String)
 		v.APIKey = apiKey.String
+	}
+	// Compute which lifecycle actions are valid right now. The
+	// matrix:
+	//
+	//   pairing       (unpaired, QR showing on the detail page)
+	//                 no lifecycle button applies — the operator's
+	//                 job here is to scan the QR. All three hidden.
+	//   connected     (paired, websocket open)
+	//                 connect=NO (already there), disconnect=YES,
+	//                 reconnect=YES (force fresh socket if stuck)
+	//   disconnected  (paired, websocket closed)
+	//                 connect=YES (resume session), disconnect=NO
+	//                 (already there), reconnect=YES (kick)
+	//   logged_out    (session revoked by server — re-pair required
+	//                 to recover; "connect" can't fix it but is
+	//                 included for symmetry with disconnected and
+	//                 so the operator gets a non-error button to
+	//                 try; it will just fail in a visible way)
+	//                 connect=YES, disconnect=NO, reconnect=YES
+	//
+	// The full matrix is centralised here so the detail template
+	// stays declarative and the same logic could be reused by the
+	// JSON API or a future "actions" endpoint.
+	switch v.Status {
+	case instance.StatusConnected:
+		v.CanConnect = false
+		v.CanDisconnect = true
+		v.CanReconnect = true
+	case instance.StatusDisconnected, instance.StatusLoggedOut:
+		v.CanConnect = true
+		v.CanDisconnect = false
+		v.CanReconnect = true
+	default:
+		// StatusPairing and any future status: nothing to do here.
+		// The detail page renders a fresh QR when applicable.
+		v.CanConnect = false
+		v.CanDisconnect = false
+		v.CanReconnect = false
 	}
 	return &v, nil
 }

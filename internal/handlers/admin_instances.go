@@ -90,6 +90,15 @@ type InstanceView struct {
 	LastSeenAt        string          `json:"last_seen_at,omitempty"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
+
+	// UI-only: which lifecycle buttons should be enabled. Computed
+	// from Status in getInstanceView. The JSON API exposes `status`
+	// and lets the caller derive these on their own — the bools
+	// here are a template convenience so the detail page doesn't
+	// need to inline a switch on every button.
+	CanConnect    bool `json:"-"`
+	CanDisconnect bool `json:"-"`
+	CanReconnect  bool `json:"-"`
 }
 
 // ListInstancesHandler handles GET /admin/api/instances — paginated list.
