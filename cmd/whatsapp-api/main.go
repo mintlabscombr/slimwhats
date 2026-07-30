@@ -395,6 +395,18 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminUI.POST("/instances/:id/webhook", handlers.WebhookFormActionHandler(instanceStore))
 	adminUI.GET("/audit", handlers.AdminAuditPage(db))
 
+	// Swagger UI + raw OpenAPI spec (US-017 + US-018, gated by US-037).
+	// Mounted on the root router (not under /admin/*) so the URL
+	// stays /swagger and /swagger/openapi.yaml — the chromeHeader nav
+	// link points at /swagger, and external API tools may already
+	// know these endpoints. The per-route SessionMiddleware enforces
+	// a valid manager session: an unauthenticated browser gets
+	// 302 → /admin/login; an API client gets 401 JSON. Previously
+	// these routes were on the root router WITHOUT any auth,
+	// exposing the full API contract to anyone.
+	r.GET("/swagger", auth.SessionMiddleware(sessions), handlers.SwaggerUIHandler())
+	r.GET("/swagger/openapi.yaml", auth.SessionMiddleware(sessions), handlers.OpenAPISpecHandler())
+
 	// Manager-authenticated JSON API.
 	adminAPI := r.Group("/admin/api", auth.SessionMiddleware(sessions))
 	adminAPI.POST("/instances", handlers.CreateInstanceHandler(instanceStore))
@@ -418,10 +430,6 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	adminAPI.POST("/instances/:id/api-key/reveal", handlers.RevealAPIKeyHandler(apiKeyDeps))
 	// (delete is only via the form-dispatcher above — HTML forms
 	// can't issue DELETE, and the form posts to a different URL)
-
-	// Swagger UI + raw OpenAPI spec (US-017 + US-018)
-	r.GET("/swagger", handlers.SwaggerUIHandler())
-	r.GET("/swagger/openapi.yaml", handlers.OpenAPISpecHandler())
 
 	// Per-instance API-key routes (Bearer auth)
 	api := r.Group("/api/v1", handlers.InstanceAPIKeyAuth(mgr))

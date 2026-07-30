@@ -88,7 +88,7 @@ func LoginHandler(d AdminAuthDeps) gin.HandlerFunc {
 			d.Sessions.CookieName,
 			sess.ID,
 			int(time.Until(sess.ExpiresAt).Seconds()),
-			"/admin",
+			"/", // root path so the cookie covers both /admin/* and /swagger (US-037)
 			"",
 			d.SecureCookie, // Secure flag — true in prod
 			true,           // HttpOnly
@@ -121,7 +121,7 @@ func LogoutHandler(d AdminAuthDeps) gin.HandlerFunc {
 		if err == nil && cookie != "" {
 			_ = d.Sessions.Delete(c.Request.Context(), cookie)
 		}
-		c.SetCookie(d.Sessions.CookieName, "", -1, "/admin", "", d.SecureCookie, true)
+		c.SetCookie(d.Sessions.CookieName, "", -1, "/", "", d.SecureCookie, true)
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	}
 }
