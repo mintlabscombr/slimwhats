@@ -143,6 +143,43 @@ func main() {
 		case *events.Connected:
 			now := time.Now().UTC()
 			_ = instanceStore.SetStatus(instanceID, instance.StatusConnected, &now, &now)
+			// Persist the device identity (JID / LID / phone)
+			// so the manager UI can show them. The whatsmeow
+			// Connected event itself is empty — we have to look
+			// at the client to get the identity. For an
+			// already-paired device, the identity is the same
+			// on every reconnect; for a freshly-paired device
+			// this is the first time we know the phone number.
+			if cli := mgr.Get(instanceID); cli != nil && cli.Store != nil && cli.Store.ID != nil {
+				jid := cli.Store.ID.String()
+				lid := ""
+				// LID is a value type, not a pointer —
+				// check User instead of nil.
+				if cli.Store.LID.User != "" {
+					lid = cli.Store.LID.String()
+				}
+				// Phone = JID user portion (strip the
+				// ":deviceid" suffix). For
+				// 5551933811858:8@s.whatsapp.net this
+				// gives 5551933811858.
+				phone := ""
+				if u := cli.Store.ID.User; u != "" {
+					if i := strings.IndexByte(u, ':'); i >= 0 {
+						phone = u[:i]
+					} else {
+						phone = u
+					}
+				}
+				if err := instanceStore.SetIdentity(instanceID, jid, lid, phone); err != nil {
+					slog.Warn("set identity", "id", instanceID, "err", err)
+				} else {
+					slog.Info("device identity persisted",
+						"id", instanceID,
+						"jid", jid,
+						"lid", lid,
+						"phone", phone)
+				}
+			}
 		case *events.Disconnected:
 			// If the disconnect was operator-driven, the handler has
 			// already set the status; this is the network-blip case.

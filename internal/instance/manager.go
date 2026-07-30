@@ -165,7 +165,21 @@ func (m *Manager) Start(ctx context.Context, instanceID string) error {
 		// New device, never paired.
 		device = m.Container.NewDevice()
 	} else {
-		device, err = m.Container.GetDevice(ctx, types.JID{User: jid, Server: "s.whatsapp.net"})
+		// The JID stored in instances.jid is the FULL JID as
+		// reported by WhatsApp (e.g. "5551933811858:8@s.whatsapp.net"),
+		// not just the user portion. Parse it back into a
+		// types.JID so GetDevice does an exact match against
+		// whatsmeow_device.jid (which is also stored as the full
+		// string). If we only passed the user portion,
+		// GetDevice would build a query for
+		// "5551933811858@s.whatsapp.net" (no device id) and miss
+		// the row — and the subsequent NewClient(nil) call would
+		// nil-deref panic on boot.
+		parsed, parseErr := types.ParseJID(jid)
+		if parseErr != nil {
+			return fmt.Errorf("parse stored jid %q: %w", jid, parseErr)
+		}
+		device, err = m.Container.GetDevice(ctx, parsed)
 		if err != nil {
 			return fmt.Errorf("get device for %s: %w", jid, err)
 		}

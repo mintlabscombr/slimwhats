@@ -231,6 +231,35 @@ func (s *Store) SetStatus(id string, status Status, connectedAt *time.Time, last
 	return err
 }
 
+// SetIdentity persists the device's JID, LID, and phone number
+// once the pairing completes. The whatsmeow event stream fires
+// events.Connected on every connect (including reconnects of an
+// already-known device), so this gets called on each handshake
+// success — overwriting any previous values. Phone is derived from
+// the JID by stripping the ":deviceid" suffix (the format is
+// "phone:deviceid@s.whatsapp.net", e.g. "5551933811858:8@s.whatsapp.net"
+// → phone "5551933811858"). LID is the new privacy-preserving
+// identifier (e.g. "243546758062161:8@lid") and is set independently.
+//
+// Used by the event subscriber in main.go's Connected handler so
+// the manager UI and admin API can show the phone / JID / LID that
+// the device is actually announcing.
+func (s *Store) SetIdentity(id, jid, lid, phone string) error {
+	now := time.Now().UTC()
+	// Use empty string to mean "leave existing value" so a
+	// partial update (e.g. LID-only) doesn't clobber a known JID.
+	// The caller can pass "" for fields they want to keep.
+	_, err := s.DB.Exec(`
+		UPDATE instances
+		SET jid = COALESCE(NULLIF(?, ''), jid),
+		    lid = COALESCE(NULLIF(?, ''), lid),
+		    phone = COALESCE(NULLIF(?, ''), phone),
+		    updated_at = ?
+		WHERE id = ?`,
+		jid, lid, phone, now, id)
+	return err
+}
+
 // Delete removes an instance row (and by CASCADE, its webhook config
 // columns, deliveries, and instance_logs). The whatsmeow device row
 // in the same DB is preserved so re-creation with the same name does
