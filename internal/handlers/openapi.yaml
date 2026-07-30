@@ -582,7 +582,7 @@ paths:
                       key: "you@example.com"
                       amount: 5000
               mixed_url_copy:
-                summary: Mixed: url + copy (no reply/pix)
+                summary: "Mixed: url + copy (no reply/pix)"
                 value:
                   to: "5511999999999"
                   body: "Choose an action"
