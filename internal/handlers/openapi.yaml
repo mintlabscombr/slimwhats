@@ -312,7 +312,7 @@ paths:
               type: object
               properties:
                 url: { type: string, description: "https://... or http://localhost*" }
-                secret: { type: string, minLength: 16, maxLength: 128 }
+                secret: { type: string, description: "Any non-empty string. Server does not validate length or strength — your receiver is the right place to enforce that." }
       responses:
         "200":
           description: Configured or cleared

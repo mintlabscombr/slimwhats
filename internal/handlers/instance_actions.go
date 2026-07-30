@@ -136,13 +136,12 @@ func SetWebhookHandler(store *instance.Store) gin.HandlerFunc {
 			return
 		}
 		// Validate secret length
-		if l := len(req.Secret); l < 16 || l > 128 {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"error":   "invalid_secret",
-				"message": "secret must be 16-128 chars",
-			})
-			return
-		}
+		// Secret is unrestricted — any non-empty value is accepted.
+		// Operators can use short API keys, UUIDs, JWTs, or long random
+		// strings depending on their receiver. We previously enforced
+		// 16-128 chars but the constraint was arbitrary and added
+		// friction; the receiver (their HTTP handler) is the right
+		// place to validate secret strength.
 		if err := store.SetWebhook(id, req.URL, req.Secret); err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"error":   "set_webhook_failed",
@@ -202,9 +201,6 @@ func WebhookFormActionHandler(store *instance.Store) gin.HandlerFunc {
 			// Validate URL
 			if !isValidWebhookURL(webhookURL) {
 				msg, msgClass = "URL must start with https:// (or http://localhost for dev).", "error"
-			} else if l := len(secret); l < 16 || l > 128 {
-				// Validate secret length
-				msg, msgClass = "Secret must be 16-128 chars.", "error"
 			} else if err := store.SetWebhook(id, webhookURL, secret); err != nil {
 				msg, msgClass = "Save failed: "+err.Error(), "error"
 			} else {

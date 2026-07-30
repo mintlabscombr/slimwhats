@@ -226,7 +226,7 @@ var adminDetailTmpl = template.Must(
   <form method="POST" action="/admin/instances/{{.Instance.ID}}/webhook">
     <label for="wh_url">URL</label>
     <input id="wh_url" name="url" placeholder="https://example.com/wh" value="{{.Instance.WebhookURL}}">
-    <label for="wh_secret">Secret (16-128 chars)</label>
+    <label for="wh_secret">Secret (any length)</label>
     <input id="wh_secret" name="secret" type="password" placeholder="leave blank to keep current">
     <button class="btn" type="submit">Save</button>
   </form>
