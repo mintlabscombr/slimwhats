@@ -22,6 +22,11 @@
   body {
     @apply bg-gray-100 text-gray-900 font-sans;
   }
+  /* Consistent focus ring for any interactive element (buttons, inputs,
+   * links). Tailwind's ring is composable with hover/active states. */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2;
+  }
 }
 
 /* --- Component classes ----------------------------------------------------- */
@@ -31,9 +36,11 @@
   /* --- Manager UI chrome (admin pages) ----------------------------------- */
 
   /* Top bar (chromeHeader). Use a specific class so the bare `header`
-   * selector doesn't accidentally style anything else. */
+   * selector doesn't accidentally style anything else. Stacks on
+   * mobile (< 640px) so the nav doesn't overflow the brand row. */
   header.app-header {
-    @apply bg-primary text-white px-8 py-4 flex justify-between items-center;
+    @apply bg-primary text-white px-6 py-4 flex flex-col gap-2
+           sm:flex-row sm:justify-between sm:items-center sm:gap-4;
   }
   header.app-header h1 {
     @apply m-0 text-xl;
@@ -41,22 +48,27 @@
   header.app-header h1 a {
     @apply text-white no-underline;
   }
+  header.app-header .nav {
+    @apply flex flex-wrap gap-x-4 gap-y-1;
+  }
   header.app-header .nav a {
-    @apply text-white no-underline ml-4 opacity-90;
+    @apply text-white no-underline opacity-90 border-b border-transparent;
   }
   header.app-header .nav a:hover {
-    @apply opacity-100;
+    @apply opacity-100 border-b border-white/60;
   }
 
-  /* Page main container. */
+  /* Page main container — consistent vertical rhythm between cards. */
   main {
-    @apply max-w-screen-xl mx-6 my-6 px-6;
+    @apply max-w-screen-xl mx-auto my-6 px-6 space-y-6;
   }
 
   /* --- Cards ------------------------------------------------------------- */
 
+  /* `.card` no longer carries its own bottom margin — the parent <main>
+   * uses `space-y-6` so rhythm is consistent across the app. */
   .card {
-    @apply bg-white p-6 rounded-xl shadow-card mb-6;
+    @apply bg-white p-6 rounded-xl shadow-card;
   }
   .card h2 {
     @apply mt-0 mb-4 text-lg;
