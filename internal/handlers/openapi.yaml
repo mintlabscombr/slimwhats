@@ -485,6 +485,17 @@ paths:
     post:
       tags: [messaging]
       summary: Send interactive buttons (reply / url / copy / call / pix)
+      description: |
+        Send a message with 1-3 interactive buttons. Supported button types:
+
+        - **reply** — quick-reply buttons (up to 3 per message). Cannot be combined with other types.
+        - **url** — opens a URL when tapped. Must be https:// (or http://localhost in dev).
+        - **copy** — copies a code to the user's clipboard.
+        - **call** — initiates a phone call to a number (E.164 format, e.g. `+5511999999999`).
+        - **pix** — Brazilian instant payment. Must be the only button in the message.
+          Amount in **cents** (BRL): `5000` = R$50,00.
+
+        The `text` field (max 20 chars) is what the user sees on the button itself.
       security: [{ apiKey: [] }]
       requestBody:
         required: true
@@ -494,12 +505,12 @@ paths:
               type: object
               required: [to, body, buttons]
               properties:
-                to: { type: string }
-                body: { type: string }
-                header: { type: string }
-                footer: { type: string }
-                id: { type: string }
-                delay: { type: integer }
+                to: { type: string, example: "5511999999999" }
+                body: { type: string, example: "Pick one" }
+                header: { type: string, example: "My header" }
+                footer: { type: string, example: "Tap to open" }
+                id: { type: string, example: "optional-message-id" }
+                delay: { type: integer, example: 0, description: "Pre-send typing delay in ms" }
                 buttons:
                   type: array
                   minItems: 1
@@ -519,12 +530,85 @@ paths:
                       copy:  "#/components/schemas/CopyButton"
                       call:  "#/components/schemas/CallButton"
                       pix:   "#/components/schemas/PixButton"
+            examples:
+              url_button:
+                summary: Single URL button
+                value:
+                  to: "5511999999999"
+                  body: "Check this out"
+                  header: "My header"
+                  footer: "Tap to open"
+                  buttons:
+                    - { type: url, text: "Open site", url: "https://example.com/" }
+              copy_button:
+                summary: Single copy-code button
+                value:
+                  to: "5511999999999"
+                  body: "Coupon inside"
+                  footer: "Tap to copy"
+                  buttons:
+                    - { type: copy, text: "Copy code", code: "PROMO2026" }
+              call_button:
+                summary: Single call button
+                value:
+                  to: "5511999999999"
+                  body: "Need help?"
+                  header: "Support"
+                  footer: "Free"
+                  buttons:
+                    - { type: call, text: "Call us", phone: "+5511999999999" }
+              reply_buttons:
+                summary: Quick-reply buttons (max 3)
+                value:
+                  to: "5511999999999"
+                  body: "Did you like it?"
+                  buttons:
+                    - { type: reply, text: "Yes", id: "yes" }
+                    - { type: reply, text: "No",  id: "no"  }
+                    - { type: reply, text: "Maybe", id: "maybe" }
+              pix_button:
+                summary: Pix payment (must be the only button)
+                value:
+                  to: "5511999999999"
+                  body: "Donation"
+                  header: "Support us"
+                  footer: "Thank you"
+                  buttons:
+                    - type: pix
+                      text: "Pay with Pix"
+                      currency: "BRL"
+                      name: "Your Name"
+                      key_type: email
+                      key: "you@example.com"
+                      amount: 5000
+              mixed_url_copy:
+                summary: Mixed: url + copy (no reply/pix)
+                value:
+                  to: "5511999999999"
+                  body: "Choose an action"
+                  header: "Header"
+                  footer: "Footer"
+                  buttons:
+                    - { type: url,  text: "Open site",  url: "https://example.com/" }
+                    - { type: copy, text: "Copy code",  code: "code-code" }
       responses:
-        "200": { description: Sent }
+        "200":
+          description: Sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, example: "3EB0B88686AA757AFD05B2" }
+                  timestamp: { type: string, format: date-time, example: "2026-07-30T02:32:06Z" }
+                  server_id: { type: integer, example: 0 }
+                  chat: { type: string, example: "5511999999999@s.whatsapp.net" }
+                  is_group: { type: boolean, example: false }
+                  type: { type: string, enum: [ButtonsMessage, InteractiveMessage], example: InteractiveMessage }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429":
-          description: Rate limited
+          description: Rate limited (20/60s/JID)
           headers: { Retry-After: { schema: { type: integer } } }
 
 components:
@@ -605,43 +689,67 @@ components:
       required: [type, text, id]
       properties:
         type: { type: string, enum: [reply] }
-        text: { type: string, description: "Button label" }
+        text: { type: string, description: "Button label (max 20 chars)" }
         id: { type: string, description: "Reply id echoed back when the user taps" }
+      example:
+        type: reply
+        text: "Yes"
+        id: "yes"
 
     UrlButton:
       type: object
       required: [type, text, url]
       properties:
         type: { type: string, enum: [url] }
-        text: { type: string }
-        url: { type: string, format: uri }
+        text: { type: string, description: "Button label (max 20 chars)" }
+        url: { type: string, format: uri, description: "Must be https:// (or http://localhost in dev); max 2048 chars" }
+      example:
+        type: url
+        text: "Open site"
+        url: "https://example.com/"
 
     CopyButton:
       type: object
       required: [type, text, code]
       properties:
         type: { type: string, enum: [copy] }
-        text: { type: string }
-        code: { type: string, description: "Copied to the user's clipboard" }
+        text: { type: string, description: "Button label (max 20 chars)" }
+        code: { type: string, description: "Copied to the user's clipboard; max 256 chars" }
+      example:
+        type: copy
+        text: "Copy code"
+        code: "PROMO2026"
 
     CallButton:
       type: object
       required: [type, text, phone]
       properties:
         type: { type: string, enum: [call] }
-        text: { type: string }
-        phone: { type: string, description: "Phone number to dial" }
+        text: { type: string, description: "Button label (max 20 chars)" }
+        phone: { type: string, description: "E.164 number with leading + (e.g. +5511999999999)" }
+      example:
+        type: call
+        text: "Call us"
+        phone: "+5511999999999"
 
     PixButton:
       type: object
       required: [type, text, key, key_type, merchant_name, amount]
       properties:
         type: { type: string, enum: [pix] }
-        text: { type: string }
+        text: { type: string, description: "Button label (max 20 chars)" }
         key: { type: string, description: "Pix key value" }
         key_type:
           type: string
           enum: [phone, email, cpf, cnpj, random]
           description: "phone→PHONE, email→EMAIL, cpf→CPF, cnpj→CNPJ, random→EVP"
-        merchant_name: { type: string }
-        amount: { type: integer, description: "In cents (BRL)" }
+        merchant_name: { type: string, description: "Displayed to the payer" }
+        amount: { type: integer, description: "In cents (BRL). Example: 5000 = R$50,00" }
+      example:
+        type: pix
+        text: "Pay with Pix"
+        currency: "BRL"
+        name: "Your Name"
+        key_type: email
+        key: "you@example.com"
+        amount: 5000
