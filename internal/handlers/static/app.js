@@ -80,9 +80,34 @@
         if (!j || !j.qr) return;
         img.style.opacity = '0.3';
         setTimeout(function () { img.src = j.qr; img.style.opacity = '1'; }, 200);
+        startCountdown();
       })
       .catch(function () { /* next event will retry */ });
   }
+
+  // "Next rotation in: 45s" countdown (F-02/US-041). Resets to 60s
+  // every time the QR is refreshed, ticks down each second. Pure JS,
+  // no extra endpoints.
+  var qrTicker = null;
+  function startCountdown() {
+    var el = document.querySelector('[data-qr-countdown]');
+    if (!el) return;
+    if (qrTicker) clearInterval(qrTicker);
+    var seconds = 60;
+    el.textContent = 'Next rotation in: ' + seconds + 's';
+    qrTicker = setInterval(function () {
+      seconds--;
+      if (seconds <= 0) {
+        el.textContent = 'Rotating…';
+        clearInterval(qrTicker);
+        qrTicker = null;
+      } else {
+        el.textContent = 'Next rotation in: ' + seconds + 's';
+      }
+    }, 1000);
+  }
+  // Kick off the countdown on initial page load if the QR is visible.
+  if (mode === 'detail' && document.getElementById('qr-img')) startCountdown();
 
   // Page Visibility: close SSE when hidden, reopen + re-fetch QR when
   // visible. EventSource auto-reconnects but takes seconds; we close

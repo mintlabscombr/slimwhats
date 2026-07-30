@@ -188,6 +188,7 @@ var adminDetailTmpl = template.Must(
     <h3 class="text-left">QR code</h3>
     <p class="muted text-left">Open WhatsApp → Linked Devices → Link a Device → scan this code. The QR rotates every 60s.</p>
     <img id="qr-img" src="{{.QR}}" alt="WhatsApp pairing QR code" class="inline-block border border-gray-300 p-2 bg-white rounded-md">
+    <p class="muted text-sm mt-2" data-qr-countdown>Next rotation in: 60s</p>
   </div>
   {{end}}
 </div>
