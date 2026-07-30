@@ -229,15 +229,19 @@ func (m *Manager) Start(ctx context.Context, instanceID string) error {
 	// (message.go: ~line 705) — the file stays on WhatsApp's
 	// server, we never see the bytes.
 	//
-	// DisableManualHistorySyncReceipt=true skips the protocol
-	// message receipt we'd otherwise send back, so the server
-	// keeps the file available in case the user later wants
-	// to trigger a manual download via DownloadHistorySync.
-	// (We don't expose that, but the cost of leaving the
-	// receipt on is nil and the "no ack = server retries if
-	// the connection drops" property is occasionally useful.)
+	// DisableManualHistorySyncReceipt is intentionally LEFT AT
+	// false (the default). Combined with the above, whatsmeow
+	// will auto-send a small protocol message receipt
+	// (type=history_sync) back to the phone for every
+	// HistorySyncNotification. The phone interprets this as
+	// "the other device processed the sync envelope, you can
+	// close it" — which clears the "Keep app open on both
+	// devices" prompt that the phone otherwise shows. We never
+	// actually downloaded the file (the download is gateed by
+	// ManualHistorySyncDownload, not by the receipt), so this
+	// is effectively a "fake success" ack — but it's a one-bit
+	// ack, not data, and the cost is negligible.
 	client.ManualHistorySyncDownload = true
-	client.DisableManualHistorySyncReceipt = true
 	// Force PairClientChrome on the QR. whatsmeow's getQRClientType()
 	// uses cli.QRClientType first (per-client override), then falls
 	// back to the global store.DeviceProps.PlatformType. We were
