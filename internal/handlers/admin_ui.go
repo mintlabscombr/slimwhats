@@ -496,7 +496,7 @@ func AdminNewSubmit(store *instance.Store, mgr *instance.Manager) gin.HandlerFun
 		// can read it from there. Landing on the detail page itself
 		// is the success signal.
 		_ = plaintext // kept in the function signature for the auto-gen
-		              // case; not surfaced via the URL anymore.
+		// case; not surfaced via the URL anymore.
 		c.Redirect(http.StatusFound, "/admin/instances/"+inst.ID)
 	}
 }

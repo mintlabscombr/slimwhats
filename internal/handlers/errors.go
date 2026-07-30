@@ -16,9 +16,9 @@ const (
 	ErrCodeOK = ""
 
 	// New instance form (AdminNewSubmit).
-	ErrCodeNameRequired   = "name_required"
-	ErrCodeNameTaken      = "name_taken"
-	ErrCodeNameTooLong    = "name_too_long"
+	ErrCodeNameRequired    = "name_required"
+	ErrCodeNameTaken       = "name_taken"
+	ErrCodeNameTooLong     = "name_too_long"
 	ErrCodeWebhookURLEmpty = "webhook_url_empty"
 
 	// Webhook form (WebhookFormActionHandler).
@@ -29,11 +29,11 @@ const (
 	ErrCodeURLEmpty       = "webhook_url_orphan"
 
 	// Lifecycle (LifecycleActionHandler + ConnectInstanceHandler).
-	ErrCodeLookupFailed  = "lookup_failed"
-	ErrCodeNotFound      = "not_found"
-	ErrCodeNotPaired     = "not_paired"
-	ErrCodeStartFailed   = "start_failed"
-	ErrCodeConnectFailed   = "connect_failed"
+	ErrCodeLookupFailed     = "lookup_failed"
+	ErrCodeNotFound         = "not_found"
+	ErrCodeNotPaired        = "not_paired"
+	ErrCodeStartFailed      = "start_failed"
+	ErrCodeConnectFailed    = "connect_failed"
 	ErrCodeDisconnectFailed = "disconnect_failed"
 	ErrCodeReconnectFailed  = "reconnect_failed"
 
@@ -71,13 +71,13 @@ var errMessages = map[string]string{
 	ErrCodeURLEmpty:       "Webhook URL is set but secret is empty.",
 
 	// Lifecycle
-	ErrCodeLookupFailed:      "Could not load the instance.",
-	ErrCodeNotFound:          "Instance not found.",
-	ErrCodeNotPaired:         "Instance is not paired. Open the detail page and scan the QR code to pair.",
-	ErrCodeStartFailed:       "Could not start the instance.",
-	ErrCodeConnectFailed:     "Could not connect the instance.",
-	ErrCodeDisconnectFailed:  "Could not disconnect the instance.",
-	ErrCodeReconnectFailed:   "Could not reconnect the instance.",
+	ErrCodeLookupFailed:     "Could not load the instance.",
+	ErrCodeNotFound:         "Instance not found.",
+	ErrCodeNotPaired:        "Instance is not paired. Open the detail page and scan the QR code to pair.",
+	ErrCodeStartFailed:      "Could not start the instance.",
+	ErrCodeConnectFailed:    "Could not connect the instance.",
+	ErrCodeDisconnectFailed: "Could not disconnect the instance.",
+	ErrCodeReconnectFailed:  "Could not reconnect the instance.",
 
 	// API key
 	ErrCodeAPIKeySetFailed:    "Could not set the API key.",

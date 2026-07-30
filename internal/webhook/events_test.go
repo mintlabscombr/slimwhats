@@ -18,8 +18,8 @@ func TestNormalize_TextBody(t *testing.T) {
 	jid := types.NewJID("5511999999999", types.DefaultUserServer)
 	info := &types.MessageInfo{
 		MessageSource: types.MessageSource{
-			Sender:  jid,
-			Chat:    jid,
+			Sender:   jid,
+			Chat:     jid,
 			IsFromMe: false,
 			IsGroup:  false,
 		},
@@ -63,8 +63,8 @@ func TestNormalize_ImageWithCaption(t *testing.T) {
 	jid := types.NewJID("5511999999999", types.DefaultUserServer)
 	info := &types.MessageInfo{
 		MessageSource: types.MessageSource{
-			Sender:  jid,
-			Chat:    jid,
+			Sender:   jid,
+			Chat:     jid,
 			IsFromMe: false,
 			IsGroup:  false,
 		},
@@ -115,8 +115,8 @@ func TestNormalize_ReplyWithQuote(t *testing.T) {
 	}
 	info := &types.MessageInfo{
 		MessageSource: types.MessageSource{
-			Sender:  jid,
-			Chat:    jid,
+			Sender:   jid,
+			Chat:     jid,
 			IsFromMe: true,
 			IsGroup:  false,
 		},
@@ -178,8 +178,8 @@ func TestNormalize_ButtonReply(t *testing.T) {
 	jid := types.NewJID("5511999999999", types.DefaultUserServer)
 	info := &types.MessageInfo{
 		MessageSource: types.MessageSource{
-			Sender:  jid,
-			Chat:    jid,
+			Sender:   jid,
+			Chat:     jid,
 			IsFromMe: false,
 			IsGroup:  false,
 		},
@@ -222,8 +222,8 @@ func TestNormalize_Reaction(t *testing.T) {
 	jid := types.NewJID("5511999999999", types.DefaultUserServer)
 	info := &types.MessageInfo{
 		MessageSource: types.MessageSource{
-			Sender:  jid,
-			Chat:    jid,
+			Sender:   jid,
+			Chat:     jid,
 			IsFromMe: false,
 			IsGroup:  false,
 		},
@@ -263,9 +263,9 @@ func dump(t *testing.T, e Event) {
 	t.Logf("payload:\n%s", string(b))
 }
 
-func stringPtr(s string) *string  { return &s }
-func uint64Ptr(u uint64) *uint64   { return &u }
-func uint32Ptr(u uint32) *uint32   { return &u }
+func stringPtr(s string) *string { return &s }
+func uint64Ptr(u uint64) *uint64 { return &u }
+func uint32Ptr(u uint32) *uint32 { return &u }
 
 // Avoid unused-import warning if some helpers are not all used.
 var _ = fmt.Sprintf
