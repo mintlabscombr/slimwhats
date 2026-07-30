@@ -671,8 +671,11 @@ var (
 func setClientIdentity(logger *slog.Logger) {
 	// 1. Identity: PlatformType=CHROME (default UNKNOWN makes the
 	// phone show "Other device") + HistorySyncConfig all zeroed
-	// out (default is "send me everything"). Both are baked into
-	// the pairing handshake — only affect future pairings.
+	// out (default is "send me everything") + Os="slimwhats" (default
+	// "whatsmeow" shows up in the phone's Linked Devices list as
+	// "Google Chrome (whatsmeow)"). All three are baked into the
+	// pairing handshake — only affect future pairings.
+	waStore.DeviceProps.Os = proto.String("slimwhats")
 	waStore.DeviceProps.PlatformType = waCompanionReg.DeviceProps_CHROME.Enum()
 	waStore.DeviceProps.HistorySyncConfig = &waCompanionReg.DeviceProps_HistorySyncConfig{
 		// All size/day limits to 0 = "don't sync".
@@ -701,6 +704,7 @@ func setClientIdentity(logger *slog.Logger) {
 		SupportHatchHistory:                      proto.Bool(false),
 	}
 	logger.Info("client identity set",
+		"os", "slimwhats",
 		"platform", "chrome",
 		"history_sync", "disabled",
 	)
