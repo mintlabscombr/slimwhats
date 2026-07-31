@@ -20,8 +20,8 @@ export APP_MANAGER_USERNAME="admin"
 
 # Optional: database (default SQLite at data/slimwhats.db)
 # To use Postgres instead:
-# export APP_DB_DRIVER="postgres"
-# export APP_DB_DSN="postgres://user:pass@host:5432/slimwhats?sslmode=disable"
+# export APP_DB_DRIVER=sqlite3
+# export APP_DB_DSN=file:data/slimwhats.db?_pragma=foreign_keys(1)
 ```
 
 ### 2. Setup, build and run
