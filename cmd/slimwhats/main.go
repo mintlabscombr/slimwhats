@@ -72,6 +72,7 @@ func main() {
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slogLevel})
 	logger := slog.New(handler)
 	slog.SetDefault(logger)
+	printBanner()
 
 	slog.Info("manager panel ready",
 		"user", cfg.ManagerUsername,
@@ -313,6 +314,9 @@ func main() {
 }
 
 func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatcher *webhook.Dispatcher, instanceStore *instance.Store) *gin.Engine {
+	if strings.ToLower(os.Getenv("APP_LOG")) != "debug" {
+		gin.SetMode(gin.ReleaseMode)
+	}
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.GET("/healthz", func(c *gin.Context) {
@@ -622,6 +626,15 @@ func disconnectReason(e *events.Disconnected) string {
 		return ""
 	}
 	return "websocket closed by server"
+}
+
+func printBanner() {
+	const banner = `
+slimwhats v1.0 — WhatsApp REST API service
+
+Ready!
+`
+	fmt.Fprintln(os.Stdout, banner)
 }
 
 // waLogAdapter is a thin adapter that pipes whatsmeow's internal
