@@ -1,10 +1,14 @@
 # Build artifacts
 bin/
+tmp/
 data/
 *.db
 *.db-journal
 *.db-shm
 *.db-wal
+
+# VCS
+.git/
 
 # Local config and secrets
 config.local.yaml

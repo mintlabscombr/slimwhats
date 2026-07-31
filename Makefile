@@ -93,9 +93,9 @@ lint:
 	$(GO) fmt ./...
 	$(GO) vet ./...
 
-# Docker targets (run from repo root so api/Dockerfile is found in context)
+# Docker targets (run from repo root)
 docker:
-	docker build -t slimwhats -f api/Dockerfile .
+	docker build -t slimwhats -f Dockerfile .
 
 docker-run: docker
 	docker run --rm -p 8080:8080 \

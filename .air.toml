@@ -1,5 +1,5 @@
 # air configuration — hot reload for the slimwhats service.
-# Run with: `air` (or `make dev` from the api/ dir).
+# Run with: `air` (or `make dev`).
 #
 # Watches Go source + SQL migrations + OpenAPI YAML + CSS sources. On any
 # change, stops the running binary (SIGTERM, with 500ms grace), rebuilds,

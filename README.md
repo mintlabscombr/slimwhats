@@ -41,14 +41,13 @@ The `/healthz` endpoint is unauthenticated and returns `200 {"status":"ok"}` for
 ## Layout
 
 ```
-api/
-├── cmd/slimwhats/   # main entry point (boot + signal handling)
-├── internal/config/     # yaml + env config loader, env validation
-├── config.yaml          # non-secret defaults (env vars override)
-├── go.mod               # module: github.com/mauroneto/slimwhats
-├── Makefile             # build / run / test / lint / migrate
-├── .gitignore
-└── README.md
+cmd/slimwhats/         # main entry point (boot + signal handling)
+internal/config/       # yaml + env config loader, env validation
+config.yaml            # non-secret defaults (env vars override)
+go.mod                 # module: github.com/mauroneto/slimwhats
+Makefile               # build / run / test / lint / migrate
+.gitignore
+README.md
 ```
 
 Future US will populate `internal/auth/`, `internal/store/`, `internal/instance/`, `internal/webhook/`, etc.
@@ -68,9 +67,9 @@ The repo ships a multi-stage `Dockerfile` and a `docker-compose.yml` example.
 ### Build the image
 
 ```bash
-make docker          # from the api/ directory
-# or, from the repo root:
-docker build -t slimwhats -f api/Dockerfile .
+make docker
+# or:
+docker build -t slimwhats -f Dockerfile .
 ```
 
 The build is two stages:
