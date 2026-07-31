@@ -322,6 +322,16 @@ func buildRouter(cfg *config.Config, db *sql.DB, mgr *instance.Manager, dispatch
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+	// Root redirect. Nothing is mounted at "/" — the manager lives under
+	// /admin/ and the API under /api/v1 — so a bare domain hit used to
+	// return gin's "404 page not found", which is indistinguishable from
+	// the 404 a reverse proxy serves when it has no route for the host.
+	// Sending / to the manager makes the bare domain work and keeps a
+	// real proxy misconfiguration diagnosable (a 404 on / now means the
+	// request never reached us).
+	r.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/admin/")
+	})
 
 	sessions := auth.NewSessionStore(db)
 	// In production (HTTPS), prefer the `__Host-session` cookie name.
@@ -634,7 +644,10 @@ slimwhats v1.0 — WhatsApp REST API service
 
 Ready!
 `
-	fmt.Fprintln(os.Stdout, banner)
+	// Fprint, not Fprintln — the raw string already ends in a newline,
+	// and `go vet` (which `go test` runs) fails the package on the
+	// redundant one.
+	fmt.Fprint(os.Stdout, banner)
 }
 
 // waLogAdapter is a thin adapter that pipes whatsmeow's internal

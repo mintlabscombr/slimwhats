@@ -10,12 +10,32 @@
 # (e.g. Coolify's "Docker Compose" mode injects these directly).
 #
 # Run:      docker compose up -d --build
+#
+# Reverse-proxy note (Coolify / Traefik / Caddy): the proxy needs to know
+# which container port to forward to, and it reads that from THIS file —
+# not from the Dockerfile's `EXPOSE`. A compose service with no port
+# declared at all is treated as internal-only, so the proxy never gets a
+# router for the domain and every request comes back as a bare
+# "404 page not found". `expose:` below declares the port to the proxy
+# without publishing it on the host. In Coolify, also put the port in the
+# service's domain field — `https://your-domain.com:8080` — which is what
+# pins the Traefik loadbalancer to 8080 (the `:8080` is stripped from the
+# public URL; the site still answers on 443).
 
 services:
   slimwhats:
     build:
       context: .
       dockerfile: Dockerfile
+    # Container port, for the proxy. Not published on the host.
+    expose:
+      - "8080"
+    # Only needed to reach the service directly, bypassing the proxy.
+    # The loopback binding keeps it off the public interface; a plain
+    # "8080:8080" would put the manager panel on the server's public IP
+    # over plain HTTP.
+    # ports:
+    #   - "127.0.0.1:8080:8080"
     environment:
       APP_MANAGER_PASSWORD: ${APP_MANAGER_PASSWORD:-39a13587376541a7b9714073ff7ffaf2}
       APP_MANAGER_USERNAME: ${APP_MANAGER_USERNAME:-admin}
