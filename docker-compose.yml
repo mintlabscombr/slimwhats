@@ -1,0 +1,30 @@
+# slimwhats — Docker Compose deployment.
+#
+# Persists the SQLite DB + WhatsApp session under the `slimwhats-data`
+# named volume, so `docker compose up` survives redeploys without any
+# manual storage setup (unlike a bare `docker run`/Dockerfile deploy,
+# where the /data volume is anonymous and gets discarded on recreate).
+#
+# Env vars are read from a sibling `.env` file (compose loads it
+# automatically) or from the deploy platform's own env var store
+# (e.g. Coolify's "Docker Compose" mode injects these directly).
+#
+# Run:      docker compose up -d --build
+
+services:
+  slimwhats:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      APP_MANAGER_PASSWORD: ${APP_MANAGER_PASSWORD}
+      APP_MANAGER_USERNAME: ${APP_MANAGER_USERNAME:-admin}
+      APP_LOG: ${APP_LOG:-info}
+    volumes:
+      - slimwhats-data:/data
+    restart: unless-stopped
+
+volumes:
+  slimwhats-data:
