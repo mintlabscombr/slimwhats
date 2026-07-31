@@ -2,8 +2,6 @@
 
 REST API on top of [`go.mau.fi/whatsmeow`](https://github.com/tulir/whatsmeow) — manage multiple WhatsApp numbers from a single process, with a web manager UI and a clean HTTP surface for sending text + interactive buttons.
 
-This service lives inside the whatsmeow repository as a `git subdir` module. It is a downstream consumer of whatsmeow; the upstream library code is untouched.
-
 ## Quickstart
 
 ### 1. Required environment variables
