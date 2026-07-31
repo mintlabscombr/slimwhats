@@ -1,4 +1,4 @@
-.PHONY: build run dev stop test lint clean docker docker-run setup css-build css-watch
+.PHONY: build run dev stop test lint clean docker docker-run setup css-build css-watch update-whatsmeow
 
 GO ?= go
 BIN := bin/slimwhats
@@ -88,6 +88,12 @@ dev:
 
 test:
 	$(GO) test ./...
+
+# whatsmeow ships no tagged releases, so @latest resolves to the newest
+# commit on its default branch. Run this periodically to pick it up.
+update-whatsmeow:
+	$(GO) get -u go.mau.fi/whatsmeow@latest
+	$(GO) mod tidy
 
 lint:
 	$(GO) fmt ./...
