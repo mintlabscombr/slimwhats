@@ -15,10 +15,16 @@
 # before `go build` so `//go:embed` picks it up. The Tailwind binary is
 # not shipped in the runtime image.
 FROM alpine:3.20 AS css-builder
+ARG TARGETARCH
 ARG TAILWIND_VERSION=v3.4.17
-RUN apk add --no-cache curl ca-certificates \
+RUN case "$TARGETARCH" in \
+      amd64) TW_ARCH=x64 ;; \
+      arm64) TW_ARCH=arm64 ;; \
+      *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && apk add --no-cache curl ca-certificates \
     && curl -fsSL -o /usr/local/bin/tailwindcss \
-       https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-x64 \
+       https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-${TW_ARCH} \
     && chmod +x /usr/local/bin/tailwindcss
 WORKDIR /css
 COPY tailwind.config.js ./tailwind.config.js
