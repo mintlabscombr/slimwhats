@@ -1,4 +1,4 @@
-// Command whatsapp-api is the entry point for the whatsmeow REST API service.
+// Command slimwhats is the entry point for the whatsmeow REST API service.
 // It embeds the whatsmeow library and exposes a multi-instance HTTP surface
 // plus a manager UI gated by an env-supplied password.
 package main
@@ -30,12 +30,12 @@ import (
 	"google.golang.org/protobuf/proto"
 	_ "modernc.org/sqlite" // modernc.org/sqlite registers as "sqlite"
 
-	"github.com/mauroneto/whatsmeow-api/internal/auth"
-	"github.com/mauroneto/whatsmeow-api/internal/config"
-	"github.com/mauroneto/whatsmeow-api/internal/handlers"
-	"github.com/mauroneto/whatsmeow-api/internal/instance"
-	"github.com/mauroneto/whatsmeow-api/internal/store"
-	"github.com/mauroneto/whatsmeow-api/internal/webhook"
+	"github.com/mauroneto/slimwhats/internal/auth"
+	"github.com/mauroneto/slimwhats/internal/config"
+	"github.com/mauroneto/slimwhats/internal/handlers"
+	"github.com/mauroneto/slimwhats/internal/instance"
+	"github.com/mauroneto/slimwhats/internal/store"
+	"github.com/mauroneto/slimwhats/internal/webhook"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-# whatsmeow-api default config
+# slimwhats default config
 #
 # Non-secret defaults. Sensitive values (APP_MANAGER_PASSWORD) are
 # env-only and never written to disk.
@@ -10,7 +10,7 @@
 
 http_addr: "8080"
 db_driver: "sqlite3"
-db_dsn: "file:data/whatsmeow-api.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+db_dsn: "file:data/slimwhats.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
 manager_username: "admin"
 
 # Comma-separated list of CIDRs trusted to set X-Forwarded-For.

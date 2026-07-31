@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/mauroneto/whatsmeow-api/internal/instance"
+	"github.com/mauroneto/slimwhats/internal/instance"
 )
 
 // CreateInstanceRequest is the JSON body for POST /admin/api/instances.

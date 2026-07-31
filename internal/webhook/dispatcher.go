@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mauroneto/whatsmeow-api/internal/instance"
+	"github.com/mauroneto/slimwhats/internal/instance"
 )
 
 // Event is the normalized event envelope sent to the receiver.

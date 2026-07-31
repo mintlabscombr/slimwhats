@@ -14,8 +14,8 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
 
-	"github.com/mauroneto/whatsmeow-api/internal/instance"
-	"github.com/mauroneto/whatsmeow-api/internal/store"
+	"github.com/mauroneto/slimwhats/internal/instance"
+	"github.com/mauroneto/slimwhats/internal/store"
 )
 
 // newTestDB opens a fresh sqlite DB in a per-test temp dir, runs

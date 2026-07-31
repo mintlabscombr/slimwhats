@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mau.fi/whatsmeow/types/events"
 
-	"github.com/mauroneto/whatsmeow-api/internal/instance"
+	"github.com/mauroneto/slimwhats/internal/instance"
 )
 
 // EventsHandler streams whatsmeow events AND audit log entries to

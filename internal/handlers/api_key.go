@@ -26,8 +26,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/mauroneto/whatsmeow-api/internal/auth"
-	"github.com/mauroneto/whatsmeow-api/internal/instance"
+	"github.com/mauroneto/slimwhats/internal/auth"
+	"github.com/mauroneto/slimwhats/internal/instance"
 )
 
 // APIKeyDeps groups the deps needed by the API-key handlers.

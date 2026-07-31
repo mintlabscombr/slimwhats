@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/mauroneto/whatsmeow-api/internal/instance"
+	"github.com/mauroneto/slimwhats/internal/instance"
 )
 
 // postFormWithID posts a form to a path with an :id param. The

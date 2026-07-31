@@ -14,7 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/mauroneto/whatsmeow-api/internal/instance"
+	"github.com/mauroneto/slimwhats/internal/instance"
 )
 
 // LogResponse is the JSON view of a single instance_logs row.

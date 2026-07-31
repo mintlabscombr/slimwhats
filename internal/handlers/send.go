@@ -11,7 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/mauroneto/whatsmeow-api/internal/send"
+	"github.com/mauroneto/slimwhats/internal/send"
 )
 
 // perJIDLimiter is shared across the package; created in main.go and

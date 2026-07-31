@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1.7
-# Multi-stage build for whatsmeow-api.
+# Multi-stage build for slimwhats.
 # Target: distroless static image, < 30 MB.
 #
-# Build:    docker build -t whatsmeow-api -f api/Dockerfile .
+# Build:    docker build -t slimwhats -f api/Dockerfile .
 # Run:      docker run -d -p 8080:8080 \
 #             -e APP_MANAGER_PASSWORD=... \
 #             -e APP_ENCRYPTION_KEY=... \
 #             -v whatsmeow-data:/data \
-#             whatsmeow-api
+#             slimwhats
 
 # --- CSS builder --------------------------------------------------------------
 # Generates api/internal/handlers/static/app.css from src.css using the
@@ -42,14 +42,14 @@ COPY --from=css-builder /css/app.css ./internal/handlers/static/app.css
 
 # Build static binary (CGO off so we can use distroless/static)
 ENV CGO_ENABLED=0 GOOS=linux
-RUN go build -trimpath -ldflags="-s -w" -o /out/whatsapp-api ./cmd/whatsapp-api
+RUN go build -trimpath -ldflags="-s -w" -o /out/slimwhats ./cmd/slimwhats
 
 # --- Runtime -----------------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 
 # Copy the binary and the default config (the user can override via env)
-COPY --from=builder /out/whatsapp-api /app/whatsapp-api
+COPY --from=builder /out/slimwhats /app/slimwhats
 COPY api/config.yaml /app/config.yaml
 
 # Run as non-root (uid 65532 inside the distroless image)
@@ -60,4 +60,4 @@ VOLUME ["/data"]
 WORKDIR /data
 
 EXPOSE 8080
-ENTRYPOINT ["/app/whatsapp-api"]
+ENTRYPOINT ["/app/slimwhats"]

@@ -22,7 +22,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/mauroneto/whatsmeow-api/internal/instance"
+	"github.com/mauroneto/slimwhats/internal/instance"
 )
 
 // LifecycleDeps groups the deps needed by the lifecycle handlers.

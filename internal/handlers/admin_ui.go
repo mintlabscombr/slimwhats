@@ -16,7 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	qrcode "github.com/skip2/go-qrcode"
 
-	"github.com/mauroneto/whatsmeow-api/internal/instance"
+	"github.com/mauroneto/slimwhats/internal/instance"
 )
 
 // adminCSS is the shared Tailwind stylesheet for every manager page

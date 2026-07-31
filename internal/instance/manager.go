@@ -55,7 +55,7 @@ type managedClient struct {
 // initializes the client map. Call StartAll to actually create the
 // whatsmeow Clients. The waLog parameter is the whatsmeow-internal
 // logger; pass waLog.Noop to silence or a wrapper around your own
-// logger (see cmd/whatsapp-api/main.go for the slog adapter).
+// logger (see cmd/slimwhats/main.go for the slog adapter).
 //
 // IMPORTANT: NewWithDB does NOT run the whatsmeow internal migrations.
 // The library's docstring is explicit:

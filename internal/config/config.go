@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config holds the runtime configuration for whatsmeow-api. Non-secret
+// Config holds the runtime configuration for slimwhats. Non-secret
 // defaults can be set in `config.yaml`; the required secret material
 // (`APP_MANAGER_PASSWORD`) is read from env only and never persisted.
 //
@@ -62,7 +62,7 @@ func Load() (*Config, error) {
 		// means even the rare WAL contention just waits up to 5
 		// seconds instead of erroring immediately. Foreign_keys
 		// remains on (required by whatsmeow's Upgrade).
-		DBDSN:           "file:data/whatsmeow-api.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
+		DBDSN:           "file:data/slimwhats.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
 		ManagerUsername: "admin",
 	}
 	if data, err := os.ReadFile("config.yaml"); err == nil {

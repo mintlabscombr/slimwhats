@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/mauroneto/whatsmeow-api/internal/auth"
+	"github.com/mauroneto/slimwhats/internal/auth"
 )
 
 // AdminAuthDeps groups the dependencies needed by the admin auth handlers.

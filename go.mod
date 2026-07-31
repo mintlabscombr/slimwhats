@@ -1,4 +1,4 @@
-module github.com/mauroneto/whatsmeow-api
+module github.com/mauroneto/slimwhats
 
 go 1.25.0
 

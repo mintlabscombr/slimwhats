@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mau.fi/whatsmeow"
 
-	"github.com/mauroneto/whatsmeow-api/internal/instance"
+	"github.com/mauroneto/slimwhats/internal/instance"
 )
 
 // InstanceQRHandler handles GET /admin/api/instances/{id}/qr. Returns

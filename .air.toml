@@ -1,4 +1,4 @@
-# air configuration — hot reload for the whatsmeow-api service.
+# air configuration — hot reload for the slimwhats service.
 # Run with: `air` (or `make dev` from the api/ dir).
 #
 # Watches Go source + SQL migrations + OpenAPI YAML + CSS sources. On any
@@ -14,11 +14,11 @@
 # Build command: produce the binary in ./bin/.
 [build]
   args_bin = []
-  bin = "./bin/whatsapp-api"
-  cmd = "go build -o ./bin/whatsapp-api ./cmd/whatsapp-api"
+  bin = "./bin/slimwhats"
+  cmd = "go build -o ./bin/slimwhats ./cmd/slimwhats"
   pre_cmd = ["make -s css-build"]
   delay = 1000
-  entrypoint = ["./bin/whatsapp-api"]
+  entrypoint = ["./bin/slimwhats"]
   exclude_dir = ["assets", "bin", "data", "tmp", "vendor", "test"]
   exclude_file = []
   # Exclude the generated CSS to avoid a rebuild loop when `pre_cmd`
