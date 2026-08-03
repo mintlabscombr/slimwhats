@@ -9,6 +9,11 @@
 # normalizeHTTPAddr for details.
 
 http_addr: "8080"
+# Public URL where the service is reachable. Baked into the embedded
+# OpenAPI spec at build time (see Makefile target `render-openapi` and
+# the matching step in the Dockerfile). In dev you can leave this at
+# localhost; in production set it to https://your-domain.example.
+url: "http://localhost:8080"
 db_driver: "sqlite3"
 db_dsn: "file:data/slimwhats.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
 manager_username: "admin"

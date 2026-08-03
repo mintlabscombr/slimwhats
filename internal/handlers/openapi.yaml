@@ -12,8 +12,13 @@ info:
     - **Per-instance** (`Authorization: Bearer sk_live_...`) — `/api/v1/*`
 
 servers:
-  - url: http://localhost:8080
-    description: Local dev
+  # The url below is the build-time APP_URL placeholder. The Makefile
+  # (target: render-openapi) and the Dockerfile both substitute it from
+  # the APP_URL env var / .env so the served spec points at the
+  # published address. The rendered file is openapi.gen.yaml
+  # (gitignored) — do not edit it directly.
+  - url: __APP_URL__
+    description: Public URL (APP_URL)
 
 tags:
   - name: manager

@@ -3,11 +3,17 @@
 # Target: distroless static image, < 30 MB.
 #
 # Build:    docker build -t slimwhats -f Dockerfile .
+#               --build-arg APP_URL=https://slimwhats.example.com
 # Run:      docker run -d -p 8080:8080 \
 #             -e APP_MANAGER_PASSWORD=... \
-#             -e APP_ENCRYPTION_KEY=... \
+#             -e APP_URL=https://slimwhats.example.com \
 #             -v whatsmeow-data:/data \
 #             slimwhats
+#
+# APP_URL is the public URL the service is reachable at. It's baked
+# into the embedded OpenAPI spec at build time (--build-arg APP_URL=…)
+# and also read at runtime as a regular env var so the same binary
+# works across deploys without rebuilding.
 
 # --- CSS builder --------------------------------------------------------------
 # Generates internal/handlers/static/app.css from src.css using the
@@ -36,6 +42,13 @@ RUN tailwindcss -i ./src.css -o ./app.css --minify
 FROM golang:1.25-alpine AS builder
 WORKDIR /src
 
+# Public URL to bake into the OpenAPI spec (overridable at build time
+# via --build-arg APP_URL=…). Falls back to the dev default if unset.
+# The source spec at internal/handlers/openapi.yaml carries a
+# __APP_URL__ placeholder; the sed below substitutes it before
+# `//go:embed` packages the file into the binary.
+ARG APP_URL=http://localhost:8080
+
 # Cache go.mod / go.sum first
 COPY go.mod go.sum ./
 RUN go mod download
@@ -47,6 +60,13 @@ COPY . .
 # src.css is the human-edited source; app.css is the generated output
 # (gitignored in the repo, produced here from the CSS stage).
 COPY --from=css-builder /css/app.css ./internal/handlers/static/app.css
+
+# Render the OpenAPI spec with APP_URL substituted. Mirrors the
+# Makefile `render-openapi` target so the two build paths produce
+# identical output.
+RUN sed "s|__APP_URL__|${APP_URL}|g" \
+        internal/handlers/openapi.yaml \
+        > internal/handlers/openapi.gen.yaml
 
 # Build static binary (CGO off so we can use distroless/static)
 ENV CGO_ENABLED=0 GOOS=linux

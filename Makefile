@@ -1,4 +1,4 @@
-.PHONY: build run dev stop test lint clean docker docker-run setup css-build css-watch update-whatsmeow
+.PHONY: build run dev stop test lint clean docker docker-run setup css-build css-watch render-openapi update-whatsmeow
 
 GO ?= go
 BIN := bin/slimwhats
@@ -17,6 +17,20 @@ TAILWIND_PLATFORM := $(shell uname -s | tr A-Z a-z | sed 's/^darwin$$/macos/')-$
 
 CSS_SRC := internal/handlers/static/src.css
 CSS_OUT := internal/handlers/static/app.css
+
+# --- OpenAPI (APP_URL substitution) -------------------------------------------
+# Source spec lives at internal/handlers/openapi.yaml with a __APP_URL__
+# placeholder. We render openapi.gen.yaml with APP_URL substituted in so
+# `//go:embed` (in internal/handlers/swagger.go) bakes the right server
+# URL into the binary. Mirrors how `app.css` is generated from `src.css`.
+OPENAPI_SRC := internal/handlers/openapi.yaml
+OPENAPI_GEN := internal/handlers/openapi.gen.yaml
+# Resolution order for APP_URL: 1) make-time override (APP_URL=… make …),
+# 2) env var already exported, 3) .env file, 4) dev default. The recipe
+# (not `$(shell)`) does the resolution so it runs at recipe time — that
+# way `make render-openapi APP_URL=https://…` actually re-renders
+# instead of being short-circuited by Make's file-up-to-date check.
+APP_URL_DEFAULT := http://localhost:8080
 
 setup: $(TAILWIND_BIN)
 
@@ -40,8 +54,19 @@ css-build: $(TAILWIND_BIN)
 css-watch: $(TAILWIND_BIN)
 	$(TAILWIND_BIN) -i $(CSS_SRC) -o $(CSS_OUT) --watch
 
+# Render openapi.gen.yaml from openapi.yaml with APP_URL substituted.
+# Always re-runs — the .PHONY rule below bypasses Make's
+# up-to-date check so `make render-openapi APP_URL=https://x` works.
+.PHONY: render-openapi
+render-openapi: $(OPENAPI_SRC) Makefile
+	@APP_URL=$${APP_URL:-$$([ -f .env ] && grep -E '^APP_URL=' .env | head -1 | sed 's/^APP_URL=//')}; \
+	APP_URL=$${APP_URL:-$(APP_URL_DEFAULT)}; \
+	echo "Rendering $(OPENAPI_GEN) with APP_URL=$$APP_URL"; \
+	sed "s|__APP_URL__|$$APP_URL|g" $(OPENAPI_SRC) > $(OPENAPI_GEN)
+	@touch $(OPENAPI_GEN)
+
 # --- Build --------------------------------------------------------------------
-build: css-build
+build: css-build render-openapi
 	$(GO) build -o $(BIN) ./cmd/slimwhats
 
 run: build
@@ -113,3 +138,4 @@ clean:
 	rm -rf bin data
 	rm -f *.db *.db-journal
 	rm -f internal/handlers/static/app.css
+	rm -f $(OPENAPI_GEN)

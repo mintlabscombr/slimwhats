@@ -15,6 +15,15 @@ export APP_MANAGER_PASSWORD="your-secure-password"
 # host ("127.0.0.1:8080"). Default ":8080".
 export APP_HTTP_ADDR="8080"
 
+# Optional: public URL where the service is reachable. Baked into the
+# embedded OpenAPI spec at build time (the Makefile target
+# `render-openapi` and the Dockerfile both substitute this into
+# internal/handlers/openapi.gen.yaml). Also read at runtime so the
+# same value is available to Go code. Default "http://localhost:8080".
+# Trailing slashes are stripped automatically; missing scheme is
+# prepended with "http://".
+export APP_URL="http://localhost:8080"
+
 # Optional: manager username shown on the login form (default "admin")
 export APP_MANAGER_USERNAME="admin"
 
@@ -68,8 +77,9 @@ The repo ships a multi-stage `Dockerfile` and a `docker-compose.yml` example.
 
 ```bash
 make docker
-# or:
-docker build -t slimwhats -f Dockerfile .
+# or, with a custom public URL baked into the OpenAPI spec:
+docker build -t slimwhats -f Dockerfile \
+    --build-arg APP_URL=https://slimwhats.example.com .
 ```
 
 The build is two stages:
@@ -101,6 +111,7 @@ APP_DB_DSN=postgres://whatsmeow:whatsmeow@postgres:5432/whatsmeow?sslmode=disabl
 ```bash
 docker run --rm -p 8080:8080 \
     -e APP_MANAGER_PASSWORD=your-password \
+    -e APP_URL=https://slimwhats.example.com \
     -v whatsmeow-data:/data \
     slimwhats
 ```

@@ -23,6 +23,7 @@ import (
 // the field is here as a no-op so old `.env` files don't fail to load.
 type Config struct {
 	HTTPAddr        string
+	URL             string
 	DBDriver        string
 	DBDSN           string
 	ManagerUsername string
@@ -40,6 +41,7 @@ type Config struct {
 // Secret material is deliberately excluded so it can never end up on disk.
 type yamlConfig struct {
 	HTTPAddr        string   `yaml:"http_addr"`
+	URL             string   `yaml:"url"`
 	DBDriver        string   `yaml:"db_driver"`
 	DBDSN           string   `yaml:"db_dsn"`
 	ManagerUsername string   `yaml:"manager_username"`
@@ -75,6 +77,7 @@ func Load() (*Config, error) {
 
 	c := &Config{
 		HTTPAddr:        normalizeHTTPAddr(envOr("APP_HTTP_ADDR", yc.HTTPAddr)),
+		URL:             normalizeURL(envOr("APP_URL", yc.URL)),
 		DBDriver:        envOr("APP_DB_DRIVER", yc.DBDriver),
 		DBDSN:           envOr("APP_DB_DSN", yc.DBDSN),
 		ManagerUsername: envOr("APP_MANAGER_USERNAME", yc.ManagerUsername),
@@ -134,4 +137,24 @@ func normalizeHTTPAddr(addr string) string {
 		return ":" + addr
 	}
 	return addr
+}
+
+// normalizeURL returns the canonical public URL the service is reachable
+// at — the value the OpenAPI spec, emails, etc. should use to reference
+// the running app. Rules:
+//   - empty string  -> "http://localhost:8080" (dev default)
+//   - trailing "/"  -> stripped (avoids "//admin" in the OpenAPI servers block)
+//   - missing scheme -> "http://" prepended (operators usually pass just the host)
+//
+// We do NOT validate that the URL is reachable — that's a deploy
+// concern, not a config one. We just normalise the format.
+func normalizeURL(raw string) string {
+	const def = "http://localhost:8080"
+	if raw == "" {
+		return def
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	return strings.TrimRight(raw, "/")
 }

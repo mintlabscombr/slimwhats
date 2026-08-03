@@ -7,23 +7,24 @@
 # shutdown sequence (HTTP -> dispatcher -> clients -> DB).
 #
 # The `pre_cmd` rebuilds the Tailwind output (`internal/handlers/static/
-# app.css`) before every Go compile so `//go:embed` always picks up the
-# latest CSS without a manual `make css-build`. The generated app.css is
-# excluded from the watcher to prevent a rebuild loop.
+# app.css`) and the rendered OpenAPI spec (`internal/handlers/openapi.gen.yaml`)
+# before every Go compile so `//go:embed` always picks up the latest assets
+# without a manual `make css-build` / `make render-openapi`. Both generated
+# files are excluded from the watcher to prevent a rebuild loop.
 
 # Build command: produce the binary in ./bin/.
 [build]
   args_bin = []
   bin = "./bin/slimwhats"
   cmd = "go build -o ./bin/slimwhats ./cmd/slimwhats"
-  pre_cmd = ["make -s css-build"]
+  pre_cmd = ["make -s css-build", "make -s render-openapi"]
   delay = 1000
   entrypoint = ["./bin/slimwhats"]
   exclude_dir = ["assets", "bin", "data", "tmp", "vendor", "test"]
   exclude_file = []
-  # Exclude the generated CSS to avoid a rebuild loop when `pre_cmd`
-  # rewrites app.css after a Go change triggers a rebuild.
-  exclude_regex = ["_test\\.go", ".*\\.db$", ".*\\.db-wal$", ".*\\.db-shm$", ".*/static/app\\.css$"]
+  # Exclude the generated CSS + generated openapi spec to avoid a rebuild
+  # loop when `pre_cmd` rewrites them after a Go change triggers a rebuild.
+  exclude_regex = ["_test\\.go", ".*\\.db$", ".*\\.db-wal$", ".*\\.db-shm$", ".*/static/app\\.css$", ".*/openapi\\.gen\\.yaml$"]
   exclude_unchanged = true
   follow_symlink = false
   full_bin = ""

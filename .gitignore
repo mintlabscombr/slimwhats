@@ -10,4 +10,6 @@ build-errors.log
 
 # Tailwind generated CSS (F-02 / US-032)
 internal/handlers/static/app.css
+# Rendered OpenAPI spec (APP_URL substituted at build time; see Makefile)
+internal/handlers/openapi.gen.yaml
 .env

@@ -40,6 +40,12 @@ services:
       APP_MANAGER_PASSWORD: ${APP_MANAGER_PASSWORD:-39a13587376541a7b9714073ff7ffaf2}
       APP_MANAGER_USERNAME: ${APP_MANAGER_USERNAME:-admin}
       APP_LOG: ${APP_LOG:-info}
+      # Public URL the service is reachable at. Must match the
+      # --build-arg APP_URL=… you passed to `docker build` (or the
+      # default baked into the image if you didn't pass one). The
+      # runtime binary uses this in the embedded OpenAPI spec; the
+      # value is normalized to drop trailing slashes.
+      APP_URL: ${APP_URL:-http://localhost:8080}
     volumes:
       - slimwhats-data:/data
     restart: unless-stopped

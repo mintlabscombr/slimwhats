@@ -124,3 +124,42 @@ func TestLoad_HTTPAddrShorthand(t *testing.T) {
 		t.Errorf("HTTPAddr = %q, want %q (operator passed bare '8080' shorthand)", c.HTTPAddr, ":8080")
 	}
 }
+
+// TestLoad_URL exercises APP_URL handling end-to-end:
+//   - unset env -> dev default
+//   - trailing slash is stripped (avoids "//admin" in the OpenAPI servers block)
+//   - missing scheme gets "http://" prepended (operator-friendly shorthand)
+//
+// Note: we don't test the config.yaml code path here — that would
+// require writing a fixture file, and the existing tests don't either.
+// The env-precedence is the load-bearing behaviour for operators.
+func TestLoad_URL(t *testing.T) {
+	cases := []struct {
+		name   string
+		envVal string // "" means unset
+		want   string
+	}{
+		{name: "unset -> dev default", envVal: "", want: "http://localhost:8080"},
+		{name: "https preserved", envVal: "https://slimwhats.example.com", want: "https://slimwhats.example.com"},
+		{name: "trailing slash stripped", envVal: "https://x.example/", want: "https://x.example"},
+		{name: "missing scheme gets http://", envVal: "x.example", want: "http://x.example"},
+		{name: "http with port preserved", envVal: "http://10.0.0.1:9090", want: "http://10.0.0.1:9090"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.envVal == "" {
+				os.Unsetenv("APP_URL")
+			} else {
+				os.Setenv("APP_URL", tc.envVal)
+			}
+			os.Setenv("APP_MANAGER_PASSWORD", "x")
+			c, err := Load()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if c.URL != tc.want {
+				t.Errorf("URL = %q, want %q", c.URL, tc.want)
+			}
+		})
+	}
+}
