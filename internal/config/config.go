@@ -5,7 +5,6 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 
@@ -92,14 +91,12 @@ func Load() (*Config, error) {
 	c.ManagerPassword = pw
 
 	// Legacy: APP_ENCRYPTION_KEY is no longer required. If set, we
-	// validate it for backward compatibility but otherwise ignore it.
-	// Webhook secrets are stored as plaintext in the DB (hotfix —
-	// see PROGRESS.md). A one-time warning is logged when the key is
-	// missing (helps catch .env files that haven't been updated).
+	// validate it for backward compatibility but otherwise ignore it —
+	// webhook secrets are stored as plaintext in the DB (hotfix, see
+	// PROGRESS.md). The unset case is silent; old .env files that still
+	// carry the key are loaded successfully when it's still well-formed.
 	keyB64 := os.Getenv("APP_ENCRYPTION_KEY")
-	if keyB64 == "" {
-		slog.Warn("APP_ENCRYPTION_KEY is not set; webhook secrets are stored as plaintext in the DB")
-	} else {
+	if keyB64 != "" {
 		key, err := base64.StdEncoding.DecodeString(keyB64)
 		if err != nil {
 			return nil, fmt.Errorf("APP_ENCRYPTION_KEY is not valid base64: %w", err)
